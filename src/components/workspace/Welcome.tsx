@@ -38,11 +38,30 @@ export function Welcome() {
             onChange={(e) => setName(e.target.value)}
             placeholder="Project name"
           />
-          <Button onClick={() => void createProject(name)}>Create project</Button>
+          <Button
+            onClick={async () => {
+              try {
+                await createProject(name);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not create the project.");
+              }
+            }}
+          >
+            Create project
+          </Button>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => void loadSample()}>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                await loadSample();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not open the sample.");
+              }
+            }}
+          >
             Open sample incident
           </Button>
           <Button

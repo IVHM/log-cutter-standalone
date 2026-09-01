@@ -21,6 +21,12 @@ export function AppShell() {
 
   useEffect(() => {
     void hydrate();
+    const failsafe = window.setTimeout(() => {
+      if (!useProjectStore.getState().hydrated) {
+        useProjectStore.setState({ hydrated: true });
+      }
+    }, 4000);
+    return () => window.clearTimeout(failsafe);
   }, [hydrate]);
 
   useEffect(() => {

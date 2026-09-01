@@ -198,11 +198,16 @@ export const useProjectStore = create<Store>((set, get) => ({
   queueImportFile: (file) => set({ queuedImportFile: file, importOpen: file ? true : get().importOpen }),
 
   hydrate: async () => {
-    const projects = await listProjects();
-    const lastId = await getLastProjectId();
-    const openId = lastId && projects.some((p) => p.id === lastId) ? lastId : projects[0]?.id;
-    const project = openId ? ((await getProject(openId)) ?? null) : null;
-    set({ hydrated: true, projects, project, dirty: false });
+    try {
+      const projects = await listProjects();
+      const lastId = await getLastProjectId();
+      const openId = lastId && projects.some((p) => p.id === lastId) ? lastId : projects[0]?.id;
+      const project = openId ? ((await getProject(openId)) ?? null) : null;
+      set({ hydrated: true, projects, project, dirty: false });
+    } catch (err) {
+      console.warn("Failed to restore projects; starting empty.", err);
+      set({ hydrated: true, projects: [], project: null, dirty: false });
+    }
   },
 
   createProject: async (name) => {
