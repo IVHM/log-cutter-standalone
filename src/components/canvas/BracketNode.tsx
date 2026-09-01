@@ -16,7 +16,7 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
   }, [selected, data.label]);
 
   return (
-    <div className="relative h-full min-h-[80px] w-full min-w-[140px] overflow-visible">
+    <div className="relative h-full min-h-[80px] w-full min-w-[140px] cursor-grab overflow-visible rounded-sm bg-sky-400/10">
       <NodeResizer
         isVisible={selected}
         minWidth={140}
@@ -46,7 +46,7 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
       </svg>
       <input
         ref={inputRef}
-        className="nodrag nopan nowheel absolute top-1/2 left-8 w-[calc(100%-2.25rem)] -translate-y-1/2 rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400"
+        className="nodrag nopan nowheel absolute top-1/2 left-8 w-[calc(100%-2.25rem)] -translate-y-1/2 cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400"
         placeholder="Group label"
         value={data.label}
         onChange={(e) => updateNodeData(canvasId, id, { label: e.target.value })}
