@@ -47,8 +47,9 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
   return (
     <div
       className={cn(
-        "relative h-full w-full cursor-grab overflow-visible rounded-sm bg-sky-400/15",
+        "relative h-full w-full cursor-grab overflow-visible rounded-sm",
         vertical ? "min-h-[80px] min-w-[140px]" : "min-h-[64px] min-w-[160px]",
+        selected ? "bg-sky-400/15 ring-1 ring-sky-400/70" : "bg-transparent",
       )}
     >
       <NodeResizer
@@ -79,7 +80,10 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
             ref={inputRef}
             size={Math.max(10, data.label.length + 2)}
             className={cn(
-              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[15px] font-bold text-sky-50/95 shadow-none outline-none placeholder:font-semibold placeholder:text-sky-200/40 focus:border-sky-400/70",
+              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md px-2 py-1 text-[15px] font-bold text-sky-50/95 outline-none placeholder:font-semibold placeholder:text-sky-200/40",
+              selected
+                ? "border border-sky-500/40 bg-sky-950/40 focus:border-sky-400/80"
+                : "border border-transparent bg-transparent",
               direction === "right" && "text-right",
               direction === "left" && "text-left",
               (direction === "up" || direction === "down") && "text-center",
@@ -87,7 +91,12 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
             placeholder="Group label"
             value={data.label}
             onChange={(e) => updateNodeData(canvasId, id, { label: e.target.value })}
-            onPointerDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              if (selected) e.stopPropagation();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === "Escape") (e.target as HTMLInputElement).blur();
+            }}
           />
         </div>
         <BraceGlyph direction={direction} />
