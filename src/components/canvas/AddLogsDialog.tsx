@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, FileJson, Plus, Search } from "lucide-react";
+import { ChevronLeft, Columns3, FileJson, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatScalar, getAtPath } from "@/lib/json-path";
+import { inferSchema, suggestColumns, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
+import type { LogRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -29,26 +32,36 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
   const [setId, setSetId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [columns, setColumns] = useState<string[]>([]);
 
   const logs = useMemo(() => {
     if (!project || !setId) return [];
     return project.logs.filter((l) => l.logSetId === setId);
   }, [project, setId]);
 
+  const schema = useMemo(() => inferSchema(logs), [logs]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return logs;
     return logs.filter((log) => {
-      const blob = `${JSON.stringify(log.data)} ${JSON.stringify(log.meta)} ${log.hash}`.toLowerCase();
+      const blob = `${JSON.stringify(log.data)} ${JSON.stringify(log.meta)} ${log.note}`.toLowerCase();
       return blob.includes(q);
     });
   }, [logs, search]);
+
+  function pickSet(id: string) {
+    setSetId(id);
+    const setLogs = project?.logs.filter((l) => l.logSetId === id) ?? [];
+    setColumns(suggestColumns(inferSchema(setLogs), setLogs.length));
+  }
 
   function close(next: boolean) {
     if (!next) {
       setSetId(null);
       setSearch("");
       setSelected(new Set());
+      setColumns([]);
     }
     onOpenChange(next);
   }
@@ -64,16 +77,22 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
     close(false);
   }
 
+  function toggleColumn(path: string) {
+    setColumns((current) =>
+      current.includes(path) ? current.filter((c) => c !== path) : [...current, path],
+    );
+  }
+
   const allSelected = filtered.length > 0 && filtered.every((l) => selected.has(l.id));
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className={cn("flex flex-col gap-3 sm:max-w-lg", setId && "sm:max-w-2xl")}>
+      <DialogContent className={cn("flex flex-col gap-3 sm:max-w-lg", setId && "sm:max-w-4xl")}>
         <DialogHeader>
           <DialogTitle>Add log(s) to canvas</DialogTitle>
           <DialogDescription>
             {setId
-              ? "Search the set, pick the records you need, then add them."
+              ? "Choose columns, pick the records you need, then add them."
               : "Choose a log set, then pick records to drop on this canvas."}
           </DialogDescription>
         </DialogHeader>
@@ -89,7 +108,7 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
                   <button
                     key={set.id}
                     type="button"
-                    onClick={() => setSetId(set.id)}
+                    onClick={() => pickSet(set.id)}
                     className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 px-3 py-3 text-left hover:bg-zinc-900"
                   >
                     <FileJson className="size-4 text-zinc-400" />
@@ -110,27 +129,33 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
                   setSetId(null);
                   setSelected(new Set());
                   setSearch("");
+                  setColumns([]);
                 }}
               >
                 <ChevronLeft className="size-3.5" />
                 Sets
               </Button>
-              <span className="truncate text-sm text-zinc-300">
+              <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
                 {project?.logSets.find((s) => s.id === setId)?.name}
               </span>
+              <ColumnPicker schema={schema} columns={columns} logCount={logs.length} onToggle={toggleColumn} />
             </div>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search payload, hash, notes…"
+                placeholder="Search payload, notes…"
                 className="pl-7"
               />
             </div>
-            <div className="max-h-[320px] overflow-auto rounded-md border border-zinc-800">
+            <div className="max-h-[360px] overflow-auto rounded-md border border-zinc-800">
               {filtered.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-zinc-500">No logs match.</p>
+              ) : columns.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-zinc-400">
+                  Choose columns to display, then select logs to add.
+                </p>
               ) : (
                 <table className="w-full text-left text-[12px]">
                   <thead className="sticky top-0 bg-zinc-950">
@@ -144,56 +169,46 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
                           }}
                         />
                       </th>
-                      <th className="px-2 py-1.5 font-medium text-zinc-400">level</th>
-                      <th className="px-2 py-1.5 font-medium text-zinc-400">summary</th>
-                      <th className="px-2 py-1.5 font-medium text-zinc-500">hash</th>
+                      {columns.map((col) => (
+                        <th key={col} className="px-2 py-1.5 font-mono text-[11px] font-medium text-zinc-400">
+                          {col}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((log) => {
-                      const level = getAtPath(log.data, "level") ?? getAtPath(log.data, "severity");
-                      const summary =
-                        getAtPath(log.data, "event") ??
-                        getAtPath(log.data, "message") ??
-                        getAtPath(log.data, "msg") ??
-                        getAtPath(log.data, "path");
-                      return (
-                        <tr
-                          key={log.id}
-                          className={cn(
-                            "cursor-pointer border-b border-zinc-900 hover:bg-zinc-900",
-                            selected.has(log.id) && "bg-sky-950/40",
-                          )}
-                          onClick={() => {
-                            const next = new Set(selected);
-                            if (next.has(log.id)) next.delete(log.id);
-                            else next.add(log.id);
-                            setSelected(next);
-                          }}
-                        >
-                          <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
-                            <Checkbox
-                              checked={selected.has(log.id)}
-                              onCheckedChange={(v) => {
-                                const next = new Set(selected);
-                                if (v) next.add(log.id);
-                                else next.delete(log.id);
-                                setSelected(next);
-                              }}
-                            />
+                    {filtered.map((log) => (
+                      <tr
+                        key={log.id}
+                        className={cn(
+                          "cursor-pointer border-b border-zinc-900 hover:bg-zinc-900",
+                          selected.has(log.id) && "bg-sky-950/40",
+                        )}
+                        onClick={() => {
+                          const next = new Set(selected);
+                          if (next.has(log.id)) next.delete(log.id);
+                          else next.add(log.id);
+                          setSelected(next);
+                        }}
+                      >
+                        <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selected.has(log.id)}
+                            onCheckedChange={(v) => {
+                              const next = new Set(selected);
+                              if (v) next.add(log.id);
+                              else next.delete(log.id);
+                              setSelected(next);
+                            }}
+                          />
+                        </td>
+                        {columns.map((col) => (
+                          <td key={col} className="max-w-[240px] truncate px-2 py-1.5 font-mono text-zinc-200">
+                            {formatScalar(cellValue(log, col), 80)}
                           </td>
-                          <td className="px-2 py-1.5 font-mono text-zinc-300">
-                            {formatScalar(level, 16)}
-                          </td>
-                          <td className="max-w-[280px] truncate px-2 py-1.5 font-mono text-zinc-200">
-                            {formatScalar(summary, 80)}
-                          </td>
-                          <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-500">
-                            {log.hash.slice(0, 8)}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        ))}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               )}
@@ -206,5 +221,59 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function cellValue(log: LogRecord, col: string) {
+  return col.startsWith("meta.") ? log.meta[col.slice(5)] : getAtPath(log.data, col);
+}
+
+function ColumnPicker({
+  schema,
+  columns,
+  logCount,
+  onToggle,
+}: {
+  schema: ReturnType<typeof inferSchema>;
+  columns: string[];
+  logCount: number;
+  onToggle: (path: string) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Columns3 className="size-3.5" />
+          Columns{columns.length > 0 ? ` (${columns.length})` : ""}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="z-[60] w-80 p-2">
+        <p className="px-1.5 pb-2 text-[11px] text-zinc-500">Check fields to show them as columns.</p>
+        <div className="max-h-72 overflow-auto">
+          {schema.length === 0 ? (
+            <p className="px-1.5 py-6 text-center text-[12px] text-zinc-500">No fields in this set.</p>
+          ) : (
+            schema.map((field) => (
+              <label
+                key={field.path}
+                className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 hover:bg-zinc-800"
+              >
+                <Checkbox
+                  checked={columns.includes(field.path)}
+                  onCheckedChange={() => onToggle(field.path)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono text-[11px] text-zinc-200">{field.path}</span>
+                  <span className="text-[10px] text-zinc-500">
+                    {typeLabel(field)} · {field.occurrences}/{logCount}
+                  </span>
+                </span>
+              </label>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
