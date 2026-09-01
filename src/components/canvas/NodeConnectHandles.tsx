@@ -35,6 +35,10 @@ export function NodeConnectHandles() {
             position={position}
             isConnectable={show}
             className={handleClass(show, "source")}
+            onPointerDown={(e) => {
+              if (!show) return;
+              e.stopPropagation();
+            }}
             onClick={(e) => {
               e.stopPropagation();
               if (!nodeId || !show) return;
@@ -52,7 +56,7 @@ function handleClass(show: boolean, kind: "source" | "target") {
     "!rounded-full !border-2",
     show
       ? cn(
-          "!size-3.5 !opacity-100 !border-sky-200 !bg-sky-500",
+          "arrow-anchor !size-4 !opacity-100 !border-sky-100 !bg-sky-500 !pointer-events-auto",
           kind === "target" && "!pointer-events-none",
         )
       : "!size-2.5 !border-0 !bg-transparent !opacity-0 !pointer-events-none",

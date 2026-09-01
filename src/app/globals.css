@@ -129,8 +129,20 @@
   }
 }
 
-.react-flow {
-  --xy-background-color: transparent;
+.react-flow .react-flow__edges {
+  z-index: 5;
+}
+
+.react-flow.drawing-arrow .react-flow__edges {
+  z-index: 2;
+}
+
+.react-flow .react-flow__nodes {
+  z-index: 3;
+}
+
+.react-flow.drawing-arrow .react-flow__nodes {
+  z-index: 5;
 }
 
 .react-flow__node {
@@ -151,4 +163,9 @@
 
 .react-flow__edge.selectable {
   cursor: pointer;
+}
+
+.react-flow__handle.arrow-anchor {
+  pointer-events: all !important;
+  z-index: 20;
 }

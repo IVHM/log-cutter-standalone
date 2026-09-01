@@ -48,20 +48,20 @@ export function LabeledEdge({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        interactionWidth={36}
+        interactionWidth={52}
         style={{
           ...style,
           stroke: selected ? "#7dd3fc" : "#a1a1aa",
-          strokeWidth: selected ? 2.6 : 1.75,
+          strokeWidth: selected ? 2.8 : 2,
         }}
       />
-      {/* Transparent stroke so the line itself is the click target, not only a label. */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
-        strokeWidth={36}
+        strokeWidth={52}
         className="react-flow__edge-interaction"
+        style={{ pointerEvents: "stroke", cursor: "pointer" }}
       />
       {showLabel ? (
         <EdgeLabelRenderer>

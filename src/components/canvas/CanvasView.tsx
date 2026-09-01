@@ -29,7 +29,7 @@ import {
   StickyNote,
   Workflow,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddLogsDialog } from "@/components/canvas/AddLogsDialog";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,7 @@ function CanvasInner({ canvasId }: Props) {
   const [bracketStart, setBracketStart] = useState<{ x: number; y: number } | null>(null);
   const [bracketCursor, setBracketCursor] = useState<{ x: number; y: number } | null>(null);
   const [addLogsOpen, setAddLogsOpen] = useState(false);
+  const activeEdgeIds = useRef<string[]>([]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -185,16 +186,38 @@ function CanvasInner({ canvasId }: Props) {
       setEdgeStyle(style);
       const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
       if (!current) return;
-      for (const edge of current.edges) {
-        if (edge.selected) updateEdge(canvasId, edge.id, { type: style });
+      const selectedIds = current.edges.filter((e) => e.selected).map((e) => e.id);
+      const ids = selectedIds.length > 0 ? selectedIds : activeEdgeIds.current;
+      for (const id of ids) {
+        updateEdge(canvasId, id, { type: style });
       }
     },
     [canvasId, updateEdge],
   );
 
+  const selectOnlyEdge = useCallback(
+    (edgeId: string) => {
+      const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+      if (!current) return;
+      activeEdgeIds.current = [edgeId];
+      setCanvasEdges(
+        canvasId,
+        current.edges.map((e) => ({ ...e, selected: e.id === edgeId })),
+      );
+      setCanvasNodes(
+        canvasId,
+        current.nodes.map((n) => ({ ...n, selected: false })),
+      );
+      const next = normalizeEdgeStyle(current.edges.find((e) => e.id === edgeId)?.type);
+      if (next) setEdgeStyle(next);
+    },
+    [canvasId, setCanvasEdges, setCanvasNodes],
+  );
+
   const selectedEdge = canvas?.edges.find((e) => e.selected);
   useEffect(() => {
     if (!selectedEdge) return;
+    activeEdgeIds.current = [selectedEdge.id];
     const next = normalizeEdgeStyle(selectedEdge.type);
     if (next) setEdgeStyle(next);
   }, [selectedEdge?.id, selectedEdge?.type]);
@@ -252,6 +275,7 @@ function CanvasInner({ canvasId }: Props) {
         minZoom={0.15}
         maxZoom={2.5}
         colorMode="dark"
+        className={tool === "arrow" ? "drawing-arrow" : undefined}
         proOptions={{ hideAttribution: true }}
         onPaneContextMenu={(e) => e.preventDefault()}
         onPointerMove={(e) => {
@@ -260,12 +284,22 @@ function CanvasInner({ canvasId }: Props) {
           if (tool === "arrow" && arrowStart) setArrowCursor(pos);
         }}
         onNodeClick={(e, node) => {
+          if (tool === "select") {
+            const edgeId = edgeIdAtPoint(e.clientX, e.clientY);
+            if (edgeId) {
+              selectOnlyEdge(edgeId);
+              return;
+            }
+          }
           if (tool !== "arrow") return;
           if (node.type === "bracket") return;
           const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
           onAnchorClick(node.id, nearestHandle(node, pos));
         }}
-        onEdgeClick={() => {
+        onEdgeClick={(_, edge) => {
+          activeEdgeIds.current = [edge.id];
+          const next = normalizeEdgeStyle(edge.type);
+          if (next) setEdgeStyle(next);
           if (tool === "arrow") {
             setArrowStart(null);
             setArrowCursor(null);
@@ -457,15 +491,31 @@ function EdgeStyleButton({
   icon: typeof Spline;
   label: string;
 }) {
+  const active = current === value;
   return (
     <Button
       size="sm"
-      variant={current === value ? "secondary" : "ghost"}
+      variant={active ? "secondary" : "ghost"}
+      aria-pressed={active}
       onClick={() => onClick(value)}
       title={`${label} arrows`}
+      className={
+        active
+          ? "border-sky-500/80 bg-sky-800 text-sky-50 hover:bg-sky-800 hover:text-sky-50"
+          : undefined
+      }
     >
       <Icon className="size-3.5" />
       {label}
     </Button>
   );
+}
+
+function edgeIdAtPoint(clientX: number, clientY: number): string | null {
+  if (typeof document === "undefined" || !document.elementsFromPoint) return null;
+  for (const el of document.elementsFromPoint(clientX, clientY)) {
+    const group = el.closest(".react-flow__edge");
+    if (group) return group.getAttribute("data-id");
+  }
+  return null;
 }
