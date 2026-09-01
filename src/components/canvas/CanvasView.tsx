@@ -265,10 +265,6 @@ function CanvasInner({ canvasId }: Props) {
             <StickyNote className="size-3.5" />
             Note
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setAddLogsOpen(true)}>
-            <Plus className="size-3.5" />
-            Add log(s) to canvas
-          </Button>
           <Button
             size="sm"
             variant={tool === "arrow" ? "secondary" : "ghost"}
@@ -299,6 +295,16 @@ function CanvasInner({ canvasId }: Props) {
           <EdgeStyleButton current={edgeStyle} value="default" onClick={setEdgeStyle} icon={Spline} label="Curve" />
           <EdgeStyleButton current={edgeStyle} value="straight" onClick={setEdgeStyle} icon={Slash} label="Straight" />
         </Panel>
+        <Panel position="top-right" className="m-0">
+          <Button
+            size="default"
+            onClick={() => setAddLogsOpen(true)}
+            className="h-9 gap-1.5 rounded-md border border-sky-300/50 bg-sky-500 px-3.5 text-[13px] font-semibold text-white shadow-lg shadow-sky-500/35 hover:bg-sky-400"
+          >
+            <Plus className="size-4" />
+            Add Log(s)
+          </Button>
+        </Panel>
         {tool === "arrow" ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
@@ -316,7 +322,7 @@ function CanvasInner({ canvasId }: Props) {
         {canvas.nodes.length === 0 && tool === "select" ? (
           <Panel position="top-center">
             <div className="mt-16 max-w-md rounded-lg border border-zinc-800 bg-zinc-950/85 px-4 py-3 text-center text-sm text-zinc-300 shadow-xl">
-              Empty canvas. Add logs from the toolbar, or place them from the browser. Drag a box to
+              Empty canvas. Use + Add Log(s) in the top-right, or place logs from the browser. Drag a box to
               multi-select, middle-click to pan, Ctrl+wheel to zoom. Click Arrow, then two cards, to
               connect them. Brace labels a span with two clicks.
             </div>

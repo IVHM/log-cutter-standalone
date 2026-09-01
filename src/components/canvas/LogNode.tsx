@@ -1,7 +1,9 @@
 "use client";
 
 import { type NodeProps } from "@xyflow/react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { JsonTree } from "@/components/json/JsonTree";
 import { jsonType } from "@/lib/hash";
 import { logField } from "@/lib/filter";
@@ -20,6 +22,7 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   );
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const setLogNote = useProjectStore((s) => s.setLogNote);
+  const [copied, setCopied] = useState(false);
 
   if (!log) {
     return (
@@ -75,6 +78,22 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
         <div className="min-w-0 flex-1 line-clamp-2 font-mono text-[11px] font-medium leading-snug break-words">
           {title}
         </div>
+        <button
+          type="button"
+          className="nodrag nopan nowheel mt-0.5 shrink-0 rounded p-0.5 opacity-85 hover:bg-black/20 hover:opacity-100"
+          title={copied ? "Copied" : "Copy raw JSON"}
+          aria-label={copied ? "Copied raw JSON" : "Copy raw JSON"}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            void copyRawJson(log.data, () => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            });
+          }}
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
       </div>
 
       <div className="nowheel nopan max-h-[420px] overflow-auto p-2">
@@ -113,6 +132,32 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
       </div>
     </div>
   );
+}
+
+async function copyRawJson(data: unknown, onCopied: () => void) {
+  const text = JSON.stringify(data, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    onCopied();
+    toast.success("Copied raw JSON");
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (!ok) throw new Error("copy failed");
+      onCopied();
+      toast.success("Copied raw JSON");
+    } catch {
+      toast.error("Could not copy JSON");
+    }
+  }
 }
 
 function headerFg(hex: string): string {
