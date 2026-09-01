@@ -34,17 +34,20 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const setBracketDirection = useProjectStore((s) => s.setBracketDirection);
   const inputRef = useRef<HTMLInputElement>(null);
+  const focusedOnCreate = useRef(false);
   const direction: BraceDirection = data.direction ?? "right";
   const vertical = direction === "left" || direction === "right";
 
   useEffect(() => {
-    if (selected && !data.label) inputRef.current?.focus();
-  }, [selected, data.label]);
+    if (focusedOnCreate.current || data.label) return;
+    focusedOnCreate.current = true;
+    inputRef.current?.focus();
+  }, [data.label]);
 
   return (
     <div
       className={cn(
-        "relative h-full w-full cursor-grab overflow-visible rounded-sm bg-sky-400/10",
+        "relative h-full w-full cursor-grab overflow-visible rounded-sm bg-sky-400/15",
         vertical ? "min-h-[80px] min-w-[140px]" : "min-h-[64px] min-w-[160px]",
       )}
     >
@@ -53,20 +56,18 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
         minWidth={vertical ? 140 : 180}
         minHeight={vertical ? 80 : 64}
         color="#7dd3fc"
+        lineClassName="!pointer-events-none"
       />
       <BraceGlyph direction={direction} />
       <input
         ref={inputRef}
+        size={Math.max(12, data.label.length + 2)}
         className={cn(
-          "nodrag nopan nowheel absolute cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400",
-          direction === "right" &&
-            "top-1/2 left-1.5 w-[calc(100%-2.5rem)] -translate-y-1/2 text-right",
-          direction === "left" &&
-            "top-1/2 right-1.5 w-[calc(100%-2.5rem)] -translate-y-1/2 text-left",
-          direction === "down" &&
-            "top-1.5 left-1/2 w-[calc(100%-1rem)] -translate-x-1/2 text-center",
-          direction === "up" &&
-            "bottom-1.5 left-1/2 w-[calc(100%-1rem)] -translate-x-1/2 text-center",
+          "nodrag nopan nowheel absolute z-10 max-w-[calc(100%-3rem)] cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400",
+          direction === "right" && "top-1/2 left-1.5 -translate-y-1/2 text-right",
+          direction === "left" && "top-1/2 right-1.5 -translate-y-1/2 text-left",
+          direction === "down" && "top-1.5 left-1/2 -translate-x-1/2 text-center",
+          direction === "up" && "bottom-1.5 left-1/2 -translate-x-1/2 text-center",
         )}
         placeholder="Group label"
         value={data.label}
@@ -75,8 +76,7 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
       />
       {selected ? (
         <div
-          className="nodrag nopan absolute -top-3 -right-3 z-10 grid grid-cols-3 grid-rows-3 rounded-md border border-sky-700 bg-zinc-950 p-0.5 shadow"
-          onPointerDown={(e) => e.stopPropagation()}
+          className="pointer-events-none absolute -top-3 -right-3 z-10 grid grid-cols-3 grid-rows-3 rounded-md border border-sky-700 bg-zinc-950/95 p-0.5 shadow"
         >
           {DIRECTION_BUTTONS.map(({ direction: dir, label, icon: Icon }) => (
             <button
@@ -86,13 +86,14 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
               aria-label={label}
               aria-pressed={direction === dir}
               className={cn(
-                "flex size-6 items-center justify-center rounded-sm text-sky-200 hover:bg-zinc-800",
+                "nodrag nopan pointer-events-auto flex size-6 items-center justify-center rounded-sm text-sky-200 hover:bg-zinc-800",
                 dir === "up" && "col-start-2 row-start-1",
                 dir === "left" && "col-start-1 row-start-2",
                 dir === "right" && "col-start-3 row-start-2",
                 dir === "down" && "col-start-2 row-start-3",
                 direction === dir && "bg-sky-800 text-sky-50",
               )}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={() => setBracketDirection(canvasId, id, dir)}
             >
               <Icon className="size-3.5" />
