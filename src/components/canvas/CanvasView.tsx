@@ -92,20 +92,22 @@ function CanvasInner({ canvasId }: Props) {
   const [addLogsOpen, setAddLogsOpen] = useState(false);
   const activeEdgeIds = useRef<string[]>([]);
 
+  const cancelPlacement = useCallback(() => {
+    setTool("select");
+    setArrowStart(null);
+    setArrowCursor(null);
+    setReconnect(null);
+    setBracketStart(null);
+    setBracketCursor(null);
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setTool("select");
-        setArrowStart(null);
-        setArrowCursor(null);
-        setReconnect(null);
-        setBracketStart(null);
-        setBracketCursor(null);
-      }
+      if (e.key === "Escape") cancelPlacement();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [cancelPlacement]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<AppNode>[]) => {
@@ -189,6 +191,7 @@ function CanvasInner({ canvasId }: Props) {
         reconnect.end === "source"
           ? { source: nodeId, sourceHandle: handle }
           : { target: nodeId, targetHandle: handle };
+      // Allow snapping back onto the original point, or onto the other end.
       updateEdge(canvasId, edge.id, patch);
       setReconnect(null);
       setArrowCursor(null);
@@ -356,7 +359,18 @@ function CanvasInner({ canvasId }: Props) {
         colorMode="dark"
         className={showAnchors ? "drawing-arrow" : undefined}
         proOptions={{ hideAttribution: true }}
-        onPaneContextMenu={(e) => e.preventDefault()}
+        onPaneContextMenu={(e) => {
+          e.preventDefault();
+          cancelPlacement();
+        }}
+        onNodeContextMenu={(e) => {
+          e.preventDefault();
+          cancelPlacement();
+        }}
+        onEdgeContextMenu={(e) => {
+          e.preventDefault();
+          cancelPlacement();
+        }}
         onPointerMove={(e) => {
           const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
           if (tool === "bracket" && bracketStart) setBracketCursor(pos);
@@ -530,20 +544,20 @@ function CanvasInner({ canvasId }: Props) {
         {reconnect ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
-              Click a new anchor for this {reconnect.end === "source" ? "tail" : "head"}. Esc to cancel.
+              Click a new anchor for this {reconnect.end === "source" ? "tail" : "head"}. Esc or right-click to cancel.
             </div>
           </Panel>
         ) : tool === "arrow" ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
-              {arrowStart ? "Click an anchor on the destination card." : "Click a side anchor, then the other end."} Esc to cancel.
+              {arrowStart ? "Click an anchor on the destination card." : "Click a side anchor, then the other end."} Esc or right-click to cancel.
             </div>
           </Panel>
         ) : null}
         {tool === "bracket" ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
-              {bracketStart ? "Click the other end of the brace." : "Click both ends of the span. A mostly vertical pair faces left or right; a horizontal pair faces up or down."} Esc to cancel.
+              {bracketStart ? "Click the other end of the brace." : "Click both ends of the span. A mostly vertical pair faces left or right; a horizontal pair faces up or down."} Esc or right-click to cancel.
             </div>
           </Panel>
         ) : null}

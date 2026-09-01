@@ -10,7 +10,6 @@ import {
 } from "@xyflow/react";
 import { useState } from "react";
 import { useProjectStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
 import { useCanvasArrow, useCanvasId } from "./canvas-context";
 
 export function LabeledEdge({
@@ -45,6 +44,8 @@ export function LabeledEdge({
     targetPosition,
   });
 
+  if (reconnecting) return null;
+
   return (
     <>
       <BaseEdge
@@ -54,8 +55,8 @@ export function LabeledEdge({
         interactionWidth={52}
         style={{
           ...style,
-          stroke: selected || reconnecting ? "#7dd3fc" : "#a1a1aa",
-          strokeWidth: selected || reconnecting ? 2.8 : 2,
+          stroke: selected ? "#7dd3fc" : "#a1a1aa",
+          strokeWidth: selected ? 2.8 : 2,
         }}
       />
       <path
@@ -67,20 +68,22 @@ export function LabeledEdge({
         style={{ pointerEvents: "stroke", cursor: "pointer" }}
       />
       <EdgeLabelRenderer>
-        <EndpointButton
-          x={sourceX}
-          y={sourceY}
-          active={selected || reconnecting}
-          label="Move tail"
-          onPick={() => onEndpointClick(id, "source")}
-        />
-        <EndpointButton
-          x={targetX}
-          y={targetY}
-          active={selected || reconnecting}
-          label="Move head"
-          onPick={() => onEndpointClick(id, "target")}
-        />
+        {selected ? (
+          <>
+            <EndpointButton
+              x={sourceX}
+              y={sourceY}
+              label="Move tail"
+              onPick={() => onEndpointClick(id, "source")}
+            />
+            <EndpointButton
+              x={targetX}
+              y={targetY}
+              label="Move head"
+              onPick={() => onEndpointClick(id, "target")}
+            />
+          </>
+        ) : null}
         {showLabel ? (
           <div
             className="nodrag nopan pointer-events-auto absolute origin-center"
@@ -121,13 +124,11 @@ export function LabeledEdge({
 function EndpointButton({
   x,
   y,
-  active,
   label,
   onPick,
 }: {
   x: number;
   y: number;
-  active: boolean;
   label: string;
   onPick: () => void;
 }) {
@@ -136,12 +137,7 @@ function EndpointButton({
       type="button"
       title={label}
       aria-label={label}
-      className={cn(
-        "nodrag nopan pointer-events-auto absolute rounded-full border-2 shadow",
-        active
-          ? "size-3.5 border-white bg-sky-400"
-          : "size-2.5 border-sky-200/80 bg-sky-500/90",
-      )}
+      className="nodrag nopan pointer-events-auto absolute size-3.5 rounded-full border-2 border-white bg-sky-400 shadow"
       style={{
         transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
         zIndex: 21,
