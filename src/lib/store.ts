@@ -9,7 +9,9 @@ import {
   setLastProjectId,
 } from "./db";
 import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
+import { emptyFilter, filterHasClauses } from "./filter";
 import { toLogRecords, type ParsedRow } from "./import-parse";
+import { normalizeProject } from "./normalize";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import { buildSampleProject } from "./sample";
 import type {
@@ -20,12 +22,13 @@ import type {
   BrowserView,
   Canvas,
   EdgeConnection,
+  LogSet,
   Project,
   ProjectSettings,
   Tab,
   Viewport,
 } from "./types";
-import { DEFAULT_SETTINGS, NOTE_COLORS } from "./types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, DEFAULT_SETTINGS, NOTE_COLORS } from "./types";
 
 export type ProjectSummary = Pick<Project, "id" | "name" | "updatedAt" | "createdAt">;
 
@@ -79,6 +82,7 @@ type Store = {
 
   createLogSet: (name: string) => string;
   renameLogSet: (id: string, name: string) => void;
+  updateLogSet: (id: string, patch: Partial<LogSet>) => void;
   deleteLogSet: (id: string) => void;
   importRows: (
     logSetId: string | "new",
@@ -89,7 +93,7 @@ type Store = {
   removeLogs: (ids: string[]) => void;
   setLogNote: (id: string, note: string) => void;
 
-  createView: (logSetId: string | "all", name?: string) => string;
+  createView: (logSetId: string, name?: string) => string;
   updateView: (id: string, patch: Partial<BrowserView>) => void;
   deleteView: (id: string) => void;
 
@@ -116,7 +120,13 @@ function emptyProject(name: string): Project {
     name,
     createdAt: now,
     updatedAt: now,
-    logSets: [{ id: logSetId, name: "Logs", createdAt: now }],
+    logSets: [{
+      id: logSetId,
+      name: "Logs",
+      createdAt: now,
+      headerPaths: [...DEFAULT_HEADER_PATHS],
+      headerColor: DEFAULT_HEADER_COLOR,
+    }],
     logs: [],
     hashIndex: {},
     views: [
@@ -125,8 +135,7 @@ function emptyProject(name: string): Project {
         name: "All logs",
         logSetId,
         columns: [],
-        search: "",
-        shapeFilter: null,
+        filter: emptyFilter(),
       },
     ],
     canvases: [
@@ -204,7 +213,7 @@ export const useProjectStore = create<Store>((set, get) => ({
       const lastId = await getLastProjectId();
       const openId = lastId && projects.some((p) => p.id === lastId) ? lastId : projects[0]?.id;
       const project = openId ? ((await getProject(openId)) ?? null) : null;
-      set({ hydrated: true, projects, project, dirty: false });
+      set({ hydrated: true, projects, project: project ? normalizeProject(project) : null, dirty: false });
     } catch (err) {
       console.warn("Failed to restore projects; starting empty.", err);
       set({ hydrated: true, projects: [], project: null, dirty: false });
@@ -234,7 +243,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const project = await getProject(id);
     if (!project) return;
     await setLastProjectId(id);
-    set({ project, dirty: false });
+    set({ project: normalizeProject(project), dirty: false });
   },
 
   renameProject: (name) => {
@@ -249,7 +258,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const next = projects[0] ? await getProject(projects[0].id) : null;
     if (next) await setLastProjectId(next.id);
     else await setLastProjectId(null);
-    set({ project: next ?? null, projects, dirty: false });
+    set({ project: next ? normalizeProject(next) : null, projects, dirty: false });
   },
 
   saveNow: async () => {
@@ -300,7 +309,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     await putProject(project);
     await setLastProjectId(project.id);
     const projects = await listProjects();
-    set({ project, projects, dirty: false });
+    set({ project: normalizeProject(project), projects, dirty: false });
   },
 
   openItem: (item) => {
@@ -316,7 +325,8 @@ export const useProjectStore = create<Store>((set, get) => ({
       if (item.type === "settings") {
         return upsertTab(p, { id: nanoid(), kind: "settings" });
       }
-      const existing = p.views.find((v) => v.logSetId === item.id);
+      const unfiltered = p.views.find((v) => v.logSetId === item.id && !filterHasClauses(v.filter));
+      const existing = unfiltered ?? p.views.find((v) => v.logSetId === item.id);
       if (existing) {
         return upsertTab(p, { id: nanoid(), kind: "browser", viewId: existing.id });
       }
@@ -328,8 +338,7 @@ export const useProjectStore = create<Store>((set, get) => ({
           inferSchema(p.logs.filter((l) => l.logSetId === item.id)),
           p.logs.filter((l) => l.logSetId === item.id).length,
         ),
-        search: "",
-        shapeFilter: null,
+        filter: emptyFilter(),
       };
       return upsertTab({ ...p, views: [...p.views, view] }, { id: nanoid(), kind: "browser", viewId: view.id });
     });
@@ -549,7 +558,13 @@ export const useProjectStore = create<Store>((set, get) => ({
     const id = nanoid();
     patchProject(set, get, (p) => ({
       ...p,
-      logSets: [...p.logSets, { id, name: name.trim() || "Log set", createdAt: Date.now() }],
+      logSets: [...p.logSets, {
+        id,
+        name: name.trim() || "Log set",
+        createdAt: Date.now(),
+        headerPaths: [...DEFAULT_HEADER_PATHS],
+        headerColor: DEFAULT_HEADER_COLOR,
+      }],
     }));
     return id;
   },
@@ -558,6 +573,13 @@ export const useProjectStore = create<Store>((set, get) => ({
     patchProject(set, get, (p) => ({
       ...p,
       logSets: p.logSets.map((s) => (s.id === id ? { ...s, name } : s)),
+    }));
+  },
+
+  updateLogSet: (id, patch) => {
+    patchProject(set, get, (p) => ({
+      ...p,
+      logSets: p.logSets.map((s) => (s.id === id ? { ...s, ...patch } : s)),
     }));
   },
 
@@ -600,7 +622,14 @@ export const useProjectStore = create<Store>((set, get) => ({
     patchProject(set, get, (p) => {
       const logSets =
         logSetId === "new"
-          ? [...p.logSets, { id: setId, name: name.trim() || sourceFile || "Import", createdAt: Date.now(), sourceFile }]
+          ? [...p.logSets, {
+              id: setId,
+              name: name.trim() || sourceFile || "Import",
+              createdAt: Date.now(),
+              sourceFile,
+              headerPaths: [...DEFAULT_HEADER_PATHS],
+              headerColor: DEFAULT_HEADER_COLOR,
+            }]
           : p.logSets.map((s) => (s.id === setId ? { ...s, sourceFile: s.sourceFile ?? sourceFile } : s));
       const hashIndex = { ...p.hashIndex };
       for (const rec of withIds) hashIndex[rec.hash] = rec.id;
@@ -616,8 +645,7 @@ export const useProjectStore = create<Store>((set, get) => ({
             name: logSets.find((s) => s.id === setId)?.name ?? "Imported",
             logSetId: setId,
             columns: suggestColumns(fields, logs.filter((l) => l.logSetId === setId).length),
-            search: "",
-            shapeFilter: null,
+            filter: emptyFilter(),
           },
         ];
       } else {
@@ -663,15 +691,14 @@ export const useProjectStore = create<Store>((set, get) => ({
   createView: (logSetId, name) => {
     const id = nanoid();
     patchProject(set, get, (p) => {
-      const logs =
-        logSetId === "all" ? p.logs : p.logs.filter((l) => l.logSetId === logSetId);
+      const logs = p.logs.filter((l) => l.logSetId === logSetId);
+      const setName = p.logSets.find((s) => s.id === logSetId)?.name;
       const view: BrowserView = {
         id,
-        name: name?.trim() || "New view",
+        name: name?.trim() || (setName ? `${setName} view` : "New view"),
         logSetId,
         columns: suggestColumns(inferSchema(logs), logs.length),
-        search: "",
-        shapeFilter: null,
+        filter: emptyFilter(),
       };
       return upsertTab({ ...p, views: [...p.views, view] }, { id: nanoid(), kind: "browser", viewId: id });
     });

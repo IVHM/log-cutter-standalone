@@ -1,12 +1,13 @@
 "use client";
 
 import { type NodeProps } from "@xyflow/react";
-import { ChevronDown, ChevronRight, Hash } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { JsonTree } from "@/components/json/JsonTree";
 import { jsonType } from "@/lib/hash";
+import { logField } from "@/lib/filter";
 import { formatScalar, getAtPath } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
-import type { LogNodeData } from "@/lib/types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, type LogNodeData } from "@/lib/types";
 import { NodeConnectHandles } from "./NodeConnectHandles";
 import { cn } from "@/lib/utils";
 import { useCanvasId } from "./canvas-context";
@@ -14,6 +15,9 @@ import { useCanvasId } from "./canvas-context";
 export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData }) {
   const canvasId = useCanvasId();
   const log = useProjectStore((s) => s.project?.logs.find((l) => l.id === data.logId));
+  const logSet = useProjectStore((s) =>
+    s.project?.logSets.find((set) => set.id === log?.logSetId),
+  );
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const setLogNote = useProjectStore((s) => s.setLogNote);
 
@@ -25,9 +29,13 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
     );
   }
 
-  const level = getAtPath(log.data, "level") ?? getAtPath(log.data, "severity");
-  const event = getAtPath(log.data, "event") ?? getAtPath(log.data, "message") ?? getAtPath(log.data, "msg");
-  const service = getAtPath(log.data, "service");
+  const headerPaths = (logSet?.headerPaths?.length ? logSet.headerPaths : DEFAULT_HEADER_PATHS).slice(0, 3);
+  const headerColor = logSet?.headerColor || DEFAULT_HEADER_COLOR;
+  const headerText = headerFg(headerColor);
+  const headerBits = headerPaths
+    .map((path) => formatScalar(logField(log, path), 48))
+    .filter((bit) => bit && bit !== "undefined");
+  const title = headerBits.length > 0 ? headerBits.join(" · ") : jsonType(log.data);
 
   function togglePin(path: string) {
     const next = data.pinnedPaths.includes(path)
@@ -46,32 +54,27 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   return (
     <div
       className={cn(
-        "w-[320px] rounded-lg border bg-zinc-950/95 shadow-xl backdrop-blur-sm",
+        "w-[320px] overflow-hidden rounded-lg border bg-zinc-950/95 shadow-xl backdrop-blur-sm",
         selected ? "border-sky-400 ring-2 ring-sky-400/30" : "border-zinc-700",
       )}
     >
       <NodeConnectHandles />
 
-      <div className="flex items-center gap-1.5 border-b border-zinc-800 px-2 py-1.5">
+      <div
+        className="flex items-start gap-1.5 border-b border-black/20 px-2 py-1.5"
+        style={{ background: headerColor, color: headerText }}
+      >
         <button
           type="button"
-          className="rounded p-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          className="mt-0.5 shrink-0 rounded p-0.5 opacity-80 hover:bg-black/20 hover:opacity-100"
           onClick={() => updateNodeData(canvasId, id, { collapsed: !data.collapsed })}
           aria-label={data.collapsed ? "Expand log" : "Collapse log"}
         >
           {data.collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
         </button>
-        <LevelBadge value={level} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-[11px] text-zinc-200">
-            {service ? `${String(service)} · ` : ""}
-            {event ? formatScalar(event, 40) : jsonType(log.data)}
-          </div>
+        <div className="min-w-0 flex-1 line-clamp-2 font-mono text-[11px] font-medium leading-snug break-words">
+          {title}
         </div>
-        <span className="flex items-center gap-0.5 font-mono text-[10px] text-zinc-500">
-          <Hash className="size-3" />
-          {log.hash.slice(0, 8)}
-        </span>
       </div>
 
       <div className="nowheel nopan max-h-[420px] overflow-auto p-2">
@@ -112,6 +115,15 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   );
 }
 
+function headerFg(hex: string): string {
+  const n = hex.replace("#", "");
+  if (n.length < 6) return "#fafafa";
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 >= 150 ? "#18181b" : "#f4f4f5";
+}
+
 function CollapsedBody({ data, pinnedPaths }: { data: unknown; pinnedPaths: string[] }) {
   if (pinnedPaths.length === 0) {
     return (
@@ -129,22 +141,5 @@ function CollapsedBody({ data, pinnedPaths }: { data: unknown; pinnedPaths: stri
         </div>
       ))}
     </div>
-  );
-}
-
-function LevelBadge({ value }: { value: unknown }) {
-  const text = String(value ?? "log").toLowerCase();
-  const color =
-    text === "error" || text === "fatal"
-      ? "bg-red-500/20 text-red-300"
-      : text === "warn" || text === "warning"
-        ? "bg-amber-500/20 text-amber-300"
-        : text === "info"
-          ? "bg-sky-500/20 text-sky-300"
-          : text === "debug" || text === "trace"
-            ? "bg-zinc-500/20 text-zinc-300"
-            : "bg-zinc-700/60 text-zinc-300";
-  return (
-    <span className={cn("rounded px-1.5 py-0.5 font-mono text-[10px] uppercase", color)}>{text}</span>
   );
 }

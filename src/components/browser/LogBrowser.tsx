@@ -3,6 +3,7 @@
 import { Columns3, Plus, Search, Trash2, LayoutDashboard } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { FilterBuilder } from "@/components/browser/FilterBuilder";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,9 +17,11 @@ import {
 } from "@/components/ui/select";
 import { JsonTree } from "@/components/json/JsonTree";
 import { PlaceOnCanvasDialog } from "@/components/canvas/PlaceOnCanvasDialog";
+import { emptyFilter } from "@/lib/filter";
 import { formatScalar, getAtPath } from "@/lib/json-path";
 import { inferSchema, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
+import { HEADER_COLORS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { logsInView } from "@/lib/views";
 
@@ -27,6 +30,7 @@ type Props = { viewId: string };
 export function LogBrowser({ viewId }: Props) {
   const project = useProjectStore((s) => s.project);
   const updateView = useProjectStore((s) => s.updateView);
+  const updateLogSet = useProjectStore((s) => s.updateLogSet);
   const removeLogs = useProjectStore((s) => s.removeLogs);
   const setImportOpen = useProjectStore((s) => s.setImportOpen);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -34,30 +38,23 @@ export function LogBrowser({ viewId }: Props) {
   const [pinDraft, setPinDraft] = useState<string[]>([]);
   const [placeOpen, setPlaceOpen] = useState(false);
   const [placeIds, setPlaceIds] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
 
   const view = project?.views.find((v) => v.id === viewId);
+  const logSet = project?.logSets.find((s) => s.id === view?.logSetId);
 
   const scopedLogs = useMemo(() => {
     if (!project || !view) return [];
-    return view.logSetId === "all"
-      ? project.logs
-      : project.logs.filter((l) => l.logSetId === view.logSetId);
+    return project.logs.filter((l) => l.logSetId === view.logSetId);
   }, [project, view]);
 
   const filtered = useMemo(() => {
     if (!project || !view) return [];
-    return logsInView(project.logs, view);
-  }, [project, view]);
+    return logsInView(project.logs, view, search);
+  }, [project, view, search]);
 
   const schema = useMemo(() => inferSchema(scopedLogs), [scopedLogs]);
-
-  const shapes = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const log of scopedLogs) {
-      map.set(log.shapeId, (map.get(log.shapeId) ?? 0) + 1);
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]);
-  }, [scopedLogs]);
+  const fieldPaths = useMemo(() => schema.map((f) => f.path), [schema]);
 
   const sorted = useMemo(() => {
     if (!view?.sortBy) return filtered;
@@ -84,10 +81,18 @@ export function LogBrowser({ viewId }: Props) {
   const columns = view.columns;
   const allSelected = sorted.length > 0 && sorted.every((l) => selected.has(l.id));
   const preview = previewId ? project.logs.find((l) => l.id === previewId) : null;
+  const headerPaths = logSet?.headerPaths ?? [];
 
   function toggleColumn(path: string) {
     const next = columns.includes(path) ? columns.filter((c) => c !== path) : [...columns, path];
     updateView(viewId, { columns: next });
+  }
+
+  function setHeaderPath(index: number, path: string) {
+    if (!logSet) return;
+    const slots = [headerPaths[0] ?? "", headerPaths[1] ?? "", headerPaths[2] ?? ""];
+    slots[index] = path === "__none__" ? "" : path;
+    updateLogSet(logSet.id, { headerPaths: slots.filter(Boolean).slice(0, 3) });
   }
 
   function requestPlace(ids: string[]) {
@@ -108,8 +113,8 @@ export function LogBrowser({ viewId }: Props) {
             Schema
           </div>
           <p className="mt-1 text-[11px] leading-snug text-zinc-500">
-            Inferred from {scopedLogs.length} logs. Check a field to add it as a column. Related
-            shapes share a structure fingerprint.
+            Inferred from {scopedLogs.length} logs in {logSet?.name ?? "this set"}. Check a field to
+            add it as a column.
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -141,32 +146,70 @@ export function LogBrowser({ viewId }: Props) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {logSet ? (
+          <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
+            <span className="text-[11px] font-medium text-zinc-400">Canvas card header</span>
+            {[0, 1, 2].map((i) => {
+              const current = headerPaths[i];
+              const options = [...new Set([current, ...fieldPaths].filter(Boolean))];
+              return (
+                <Select
+                  key={i}
+                  value={current ?? "__none__"}
+                  onValueChange={(v) => setHeaderPath(i, v)}
+                >
+                  <SelectTrigger className="h-7 w-[140px] font-mono text-[11px]">
+                    <SelectValue placeholder={`Field ${i + 1}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {options.map((path) => (
+                      <SelectItem key={path} value={path} className="font-mono text-[11px]">
+                        {path}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              );
+            })}
+            <div className="flex items-center gap-1">
+              {HEADER_COLORS.map((swatch) => (
+                <button
+                  key={swatch.hex}
+                  type="button"
+                  title={swatch.name}
+                  aria-label={swatch.name}
+                  className={cn(
+                    "size-5 rounded-full ring-1 ring-white/20",
+                    logSet.headerColor === swatch.hex && "ring-2 ring-sky-300",
+                  )}
+                  style={{ background: swatch.hex }}
+                  onClick={() => updateLogSet(logSet.id, { headerColor: swatch.hex })}
+                />
+              ))}
+            </div>
+            <span className="text-[10px] text-zinc-600">Up to three fields · wraps to two lines on the card</span>
+          </div>
+        ) : null}
+
+        <div className="border-b border-zinc-800 px-3 py-2">
+          <FilterBuilder
+            value={view.filter ?? emptyFilter()}
+            fields={fieldPaths.length > 0 ? fieldPaths : columns}
+            onChange={(filter) => updateView(viewId, { filter })}
+          />
+        </div>
+
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
           <div className="relative min-w-[180px] flex-1">
             <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
             <Input
-              value={view.search}
-              onChange={(e) => updateView(viewId, { search: e.target.value })}
-              placeholder="Filter payload, notes, hash…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Temporary search in this tab…"
               className="h-8 pl-7"
             />
           </div>
-          <Select
-            value={view.shapeFilter ?? "all"}
-            onValueChange={(v) => updateView(viewId, { shapeFilter: v === "all" ? null : v })}
-          >
-            <SelectTrigger className="h-8 w-[180px]">
-              <SelectValue placeholder="All shapes" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All shapes ({scopedLogs.length})</SelectItem>
-              {shapes.map(([shape, count]) => (
-                <SelectItem key={shape} value={shape}>
-                  {summarizeShape(shape)} · {count}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
             <Plus className="size-3.5" />
             Import
@@ -205,12 +248,13 @@ export function LogBrowser({ viewId }: Props) {
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <p className="text-sm text-zinc-300">Pick fields from the schema to build this view.</p>
               <p className="text-[13px] text-zinc-500">
-                Columns are just JSON paths. Related logs sort together when you click a column header.
+                Columns are JSON paths. The filter above is what makes this view different from others
+                on the same set.
               </p>
             </div>
           ) : sorted.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-              No logs match this filter.
+              No logs match this filter{search.trim() ? " or search" : ""}.
             </div>
           ) : (
             <table className="w-full min-w-max border-collapse text-left text-[12px]">
@@ -241,7 +285,6 @@ export function LogBrowser({ viewId }: Props) {
                       </button>
                     </th>
                   ))}
-                  <th className="px-2 py-1.5 font-mono text-[11px] text-zinc-500">hash</th>
                 </tr>
               </thead>
               <tbody>
@@ -276,7 +319,6 @@ export function LogBrowser({ viewId }: Props) {
                         </td>
                       );
                     })}
-                    <td className="px-2 py-1 font-mono text-[11px] text-zinc-500">{log.hash.slice(0, 10)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -285,8 +327,7 @@ export function LogBrowser({ viewId }: Props) {
         </div>
         <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-500">
           <span>
-            {sorted.length} shown · {scopedLogs.length} in set · {project.logs.length} in project ·{" "}
-            {Object.keys(project.hashIndex).length} unique hashes
+            {sorted.length} shown · {scopedLogs.length} in set · {project.logs.length} in project
           </span>
           <Badge variant="secondary">{selected.size} selected</Badge>
         </div>
@@ -328,13 +369,4 @@ export function LogBrowser({ viewId }: Props) {
       <PlaceOnCanvasDialog open={placeOpen} onOpenChange={setPlaceOpen} logIds={placeIds} />
     </div>
   );
-}
-
-function summarizeShape(shape: string): string {
-  const keys = shape
-    .split("|")
-    .map((part) => part.split(":")[0])
-    .filter((p) => p && p !== "$" && !p.includes("."));
-  if (keys.length === 0) return "empty";
-  return keys.slice(0, 3).join(", ") + (keys.length > 3 ? "…" : "");
 }

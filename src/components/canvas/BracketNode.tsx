@@ -72,14 +72,14 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
             "flex items-center",
             vertical
               ? cn("min-w-0 flex-1 px-1.5", direction === "right" ? "justify-end" : "justify-start")
-              : "h-9 shrink-0 justify-center px-2",
+              : "min-h-10 shrink-0 justify-center px-2",
           )}
         >
           <input
             ref={inputRef}
-            size={Math.max(12, data.label.length + 2)}
+            size={Math.max(10, data.label.length + 2)}
             className={cn(
-              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400",
+              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md border border-sky-500/30 bg-sky-950/35 px-2 py-1 text-[15px] font-bold text-sky-50/95 shadow-none outline-none placeholder:font-semibold placeholder:text-sky-200/40 focus:border-sky-400/70",
               direction === "right" && "text-right",
               direction === "left" && "text-left",
               (direction === "up" || direction === "down") && "text-center",

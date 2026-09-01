@@ -13,6 +13,7 @@ import {
   ReactFlowProvider,
   SelectionMode,
   useReactFlow,
+  ViewportPortal,
   type Connection,
   type EdgeChange,
   type NodeChange,
@@ -79,6 +80,7 @@ function CanvasInner({ canvasId }: Props) {
   const [tool, setTool] = useState<Tool>("select");
   const [arrowSource, setArrowSource] = useState<string | null>(null);
   const [bracketStart, setBracketStart] = useState<{ x: number; y: number } | null>(null);
+  const [bracketCursor, setBracketCursor] = useState<{ x: number; y: number } | null>(null);
   const [addLogsOpen, setAddLogsOpen] = useState(false);
 
   useEffect(() => {
@@ -87,6 +89,7 @@ function CanvasInner({ canvasId }: Props) {
         setTool("select");
         setArrowSource(null);
         setBracketStart(null);
+        setBracketCursor(null);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -177,6 +180,10 @@ function CanvasInner({ canvasId }: Props) {
         colorMode="dark"
         proOptions={{ hideAttribution: true }}
         onPaneContextMenu={(e) => e.preventDefault()}
+        onPointerMove={(e) => {
+          if (tool !== "bracket" || !bracketStart) return;
+          setBracketCursor(screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+        }}
         onNodeClick={(_, node) => {
           if (tool !== "arrow") return;
           if (!arrowSource) {
@@ -204,11 +211,13 @@ function CanvasInner({ canvasId }: Props) {
           if (tool === "bracket") {
             if (!bracketStart) {
               setBracketStart(pos);
+              setBracketCursor(pos);
               toast.message("Click the other end of the brace.");
               return;
             }
             addBracket(canvasId, bracketStart, pos);
             setBracketStart(null);
+            setBracketCursor(null);
             setTool("select");
             toast.message("Type a group label on the brace.");
             return;
@@ -218,6 +227,27 @@ function CanvasInner({ canvasId }: Props) {
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#3f3f46" />
+        {tool === "bracket" && bracketStart && bracketCursor ? (
+          <ViewportPortal>
+            <svg
+              className="pointer-events-none absolute overflow-visible"
+              style={{ left: 0, top: 0, width: 1, height: 1 }}
+              aria-hidden
+            >
+              <line
+                x1={bracketStart.x}
+                y1={bracketStart.y}
+                x2={bracketCursor.x}
+                y2={bracketCursor.y}
+                stroke="#7dd3fc"
+                strokeWidth={1.75}
+                strokeDasharray="7 5"
+                strokeLinecap="round"
+              />
+              <circle cx={bracketStart.x} cy={bracketStart.y} r={3.5} fill="#7dd3fc" />
+            </svg>
+          </ViewportPortal>
+        ) : null}
         <Controls showInteractive={false} />
         {settings?.showMinimap ? (
           <MiniMap
@@ -257,6 +287,7 @@ function CanvasInner({ canvasId }: Props) {
             onClick={() => {
               setTool((t) => (t === "bracket" ? "select" : "bracket"));
               setBracketStart(null);
+              setBracketCursor(null);
               setArrowSource(null);
             }}
           >

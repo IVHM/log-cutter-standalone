@@ -47,16 +47,49 @@ export type LogSet = {
   name: string;
   createdAt: number;
   sourceFile?: string;
+  /** Up to three JSON paths shown on canvas log card headers. */
+  headerPaths: string[];
+  headerColor: string;
 };
+
+export type FilterOp =
+  | "eq"
+  | "neq"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "between"
+  | "contains"
+  | "is_true"
+  | "is_false"
+  | "is_empty"
+  | "is_not_empty";
+
+export type FilterClause = {
+  kind: "clause";
+  path: string;
+  op: FilterOp;
+  value: string;
+  valueTo: string;
+};
+
+export type FilterGroup = {
+  kind: "group";
+  join: "and" | "or";
+  children: FilterExpr[];
+};
+
+export type FilterExpr = FilterClause | FilterGroup;
 
 export type BrowserView = {
   id: string;
   name: string;
-  logSetId: string | "all";
+  /** Exactly one log set. Canvases may mix sets; views may not. */
+  logSetId: string;
   columns: string[];
   sortBy?: { path: string; dir: "asc" | "desc" };
-  search: string;
-  shapeFilter: string | null;
+  filter: FilterGroup;
 };
 
 export type LogNodeData = {
@@ -145,3 +178,16 @@ export const NOTE_COLORS = [
 ] as const;
 
 export const DEFAULT_NOTE_COLOR = NOTE_COLORS[0].hex;
+
+export const HEADER_COLORS = [
+  { name: "Zinc", hex: "#27272a" },
+  { name: "Slate", hex: "#334155" },
+  { name: "Sky", hex: "#0c4a6e" },
+  { name: "Emerald", hex: "#065f46" },
+  { name: "Amber", hex: "#92400e" },
+  { name: "Rose", hex: "#9f1239" },
+  { name: "Violet", hex: "#5b21b6" },
+] as const;
+
+export const DEFAULT_HEADER_COLOR = HEADER_COLORS[0].hex;
+export const DEFAULT_HEADER_PATHS = ["level", "service", "event"];

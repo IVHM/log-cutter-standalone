@@ -136,7 +136,30 @@ export function Sidebar() {
 
         <Section
           title="Browser views"
-          onAdd={() => createView("all")}
+          addControl={
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                  aria-label="Add browser view"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {project.logSets.length === 0 ? (
+                  <DropdownMenuItem disabled>Import a log set first</DropdownMenuItem>
+                ) : (
+                  project.logSets.map((set) => (
+                    <DropdownMenuItem key={set.id} onClick={() => createView(set.id)}>
+                      {set.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
         >
           {project.views.map((v) => (
             <OutlineRow
@@ -175,10 +198,12 @@ export function Sidebar() {
 function Section({
   title,
   onAdd,
+  addControl,
   children,
 }: {
   title: string;
-  onAdd: () => void;
+  onAdd?: () => void;
+  addControl?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -187,14 +212,16 @@ function Section({
         <span className="flex-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
           {title}
         </span>
-        <button
-          type="button"
-          className="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
-          onClick={onAdd}
-          aria-label={`Add ${title}`}
-        >
-          <Plus className="size-3.5" />
-        </button>
+        {addControl ?? (
+          <button
+            type="button"
+            className="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            onClick={onAdd}
+            aria-label={`Add ${title}`}
+          >
+            <Plus className="size-3.5" />
+          </button>
+        )}
       </div>
       <div>{children}</div>
     </div>

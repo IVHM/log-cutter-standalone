@@ -1,8 +1,9 @@
 import { nanoid } from "nanoid";
+import { emptyFilter } from "./filter";
 import { hashPayload, shapeIdOf } from "./hash";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import type { AppEdge, AppNode, BrowserView, Canvas, LogRecord, LogSet, Project } from "./types";
-import { DEFAULT_NOTE_COLOR, DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, DEFAULT_NOTE_COLOR, DEFAULT_SETTINGS } from "./types";
 
 const SAMPLE_LOGS: unknown[] = [
   {
@@ -126,6 +127,8 @@ export async function buildSampleProject(): Promise<Project> {
     name: "checkout-incident",
     createdAt: now,
     sourceFile: "sample-logs.jsonl",
+    headerPaths: [...DEFAULT_HEADER_PATHS],
+    headerColor: DEFAULT_HEADER_COLOR,
   };
 
   const logs: LogRecord[] = [];
@@ -153,16 +156,18 @@ export async function buildSampleProject(): Promise<Project> {
     name: "All logs",
     logSetId: logSet.id,
     columns: suggestColumns(fields, logs.length),
-    search: "",
-    shapeFilter: null,
+    filter: emptyFilter(),
   };
   const errorView: BrowserView = {
     id: nanoid(),
     name: "Errors",
     logSetId: logSet.id,
     columns: suggestColumns(fields, logs.length),
-    search: "error",
-    shapeFilter: null,
+    filter: {
+      kind: "group",
+      join: "and",
+      children: [{ kind: "clause", path: "level", op: "eq", value: "error", valueTo: "" }],
+    },
   };
 
   const apiError = logs.find((l) => {
