@@ -278,7 +278,7 @@ function CanvasInner({ canvasId }: Props) {
         {tool === "bracket" ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
-              {bracketStart ? "Click the other end of the brace." : "Click where the brace should start, then the other end."} Esc to cancel.
+              {bracketStart ? "Click the other end of the brace." : "Click both ends of the span. A mostly vertical pair faces left or right; a horizontal pair faces up or down."} Esc to cancel.
             </div>
           </Panel>
         ) : null}

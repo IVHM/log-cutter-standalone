@@ -73,9 +73,12 @@ export type NoteNodeData = {
   color: string;
 };
 
+export type BraceDirection = "left" | "right" | "up" | "down";
+
 export type BracketNodeData = {
   kind: "bracket";
   label: string;
+  direction: BraceDirection;
 };
 
 export type AppNodeData = LogNodeData | NoteNodeData | BracketNodeData;

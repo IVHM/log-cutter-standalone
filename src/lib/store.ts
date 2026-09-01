@@ -8,6 +8,7 @@ import {
   putProject,
   setLastProjectId,
 } from "./db";
+import { inferBraceLayout, nextBraceDirection, rotatedBraceBox } from "./brace";
 import { toLogRecords, type ParsedRow } from "./import-parse";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import { buildSampleProject } from "./sample";
@@ -69,6 +70,7 @@ type Store = {
     start: { x: number; y: number },
     end: { x: number; y: number },
   ) => void;
+  rotateBracket: (canvasId: string, nodeId: string) => void;
   updateNodeData: (canvasId: string, nodeId: string, data: Partial<AppNodeData>) => void;
   connectEdge: (canvasId: string, connection: EdgeConnection) => void;
   updateEdge: (canvasId: string, edgeId: string, patch: Partial<AppEdge>) => void;
@@ -465,24 +467,47 @@ export const useProjectStore = create<Store>((set, get) => ({
   },
 
   addBracket: (canvasId, start, end) => {
-    const top = Math.min(start.y, end.y);
-    const height = Math.max(120, Math.abs(end.y - start.y));
-    const width = 168;
-    const x = Math.min(start.x, end.x) - width + 20;
+    const project = get().project;
+    const canvas = project?.canvases.find((c) => c.id === canvasId);
+    const layout = inferBraceLayout(start, end, canvas?.nodes ?? []);
     const node: AppNode = {
       id: nanoid(),
       type: "bracket",
-      position: { x, y: top },
-      style: { width, height, overflow: "visible" },
-      width,
-      height,
+      position: { x: layout.x, y: layout.y },
+      style: { width: layout.width, height: layout.height, overflow: "visible" },
+      width: layout.width,
+      height: layout.height,
       selected: true,
-      data: { kind: "bracket", label: "" },
+      data: { kind: "bracket", label: "", direction: layout.direction },
     };
     patchProject(set, get, (p) =>
       mapCanvas(p, canvasId, (c) => ({
         ...c,
         nodes: [...c.nodes.map((n) => ({ ...n, selected: false })), node],
+      })),
+    );
+  },
+
+  rotateBracket: (canvasId, nodeId) => {
+    patchProject(set, get, (p) =>
+      mapCanvas(p, canvasId, (c) => ({
+        ...c,
+        nodes: c.nodes.map((n) => {
+          if (n.id !== nodeId || n.type !== "bracket") return n;
+          const from = n.data.kind === "bracket" ? (n.data.direction ?? "right") : "right";
+          const to = nextBraceDirection(from);
+          const width = (n.width as number | undefined) ?? (n.style?.width as number | undefined) ?? 168;
+          const height = (n.height as number | undefined) ?? (n.style?.height as number | undefined) ?? 120;
+          const box = rotatedBraceBox(n.position, width, height, from, to);
+          return {
+            ...n,
+            position: { x: box.x, y: box.y },
+            width: box.width,
+            height: box.height,
+            style: { ...n.style, width: box.width, height: box.height, overflow: "visible" },
+            data: { ...n.data, direction: to } as AppNodeData,
+          };
+        }),
       })),
     );
   },
