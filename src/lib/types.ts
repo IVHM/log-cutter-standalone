@@ -1,4 +1,13 @@
-import type { Edge, Node, Viewport } from "@xyflow/react";
+import type { Edge, Node } from "@xyflow/react";
+
+export type Viewport = { x: number; y: number; zoom: number };
+
+export type EdgeConnection = {
+  source: string | null;
+  target: string | null;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+};
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =

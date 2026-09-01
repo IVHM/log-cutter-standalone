@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  applyEdgeChanges,
+  applyNodeChanges,
   Background,
   BackgroundVariant,
   Controls,
@@ -53,8 +55,8 @@ function CanvasInner({ canvasId }: Props) {
   const canvas = useProjectStore((s) => s.project?.canvases.find((c) => c.id === canvasId));
   const settings = useProjectStore((s) => s.project?.settings);
   const logs = useProjectStore((s) => s.project?.logs ?? []);
-  const applyNodeChanges = useProjectStore((s) => s.applyNodeChanges);
-  const applyEdgeChanges = useProjectStore((s) => s.applyEdgeChanges);
+  const setCanvasNodes = useProjectStore((s) => s.setCanvasNodes);
+  const setCanvasEdges = useProjectStore((s) => s.setCanvasEdges);
   const setViewport = useProjectStore((s) => s.setViewport);
   const connectEdge = useProjectStore((s) => s.connectEdge);
   const addNote = useProjectStore((s) => s.addNote);
@@ -83,12 +85,20 @@ function CanvasInner({ canvasId }: Props) {
   }, []);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<AppNode>[]) => applyNodeChanges(canvasId, changes),
-    [applyNodeChanges, canvasId],
+    (changes: NodeChange<AppNode>[]) => {
+      const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+      if (!current) return;
+      setCanvasNodes(canvasId, applyNodeChanges(changes, current.nodes) as AppNode[]);
+    },
+    [canvasId, setCanvasNodes],
   );
   const onEdgesChange = useCallback(
-    (changes: EdgeChange<AppEdge>[]) => applyEdgeChanges(canvasId, changes),
-    [applyEdgeChanges, canvasId],
+    (changes: EdgeChange<AppEdge>[]) => {
+      const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+      if (!current) return;
+      setCanvasEdges(canvasId, applyEdgeChanges(changes, current.edges) as AppEdge[]);
+    },
+    [canvasId, setCanvasEdges],
   );
 
   const onConnect = useCallback(

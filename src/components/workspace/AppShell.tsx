@@ -12,7 +12,6 @@ import { useProjectStore } from "@/lib/store";
 
 export function AppShell() {
   const hydrate = useProjectStore((s) => s.hydrate);
-  const hydrated = useProjectStore((s) => s.hydrated);
   const project = useProjectStore((s) => s.project);
   const dirty = useProjectStore((s) => s.dirty);
   const saving = useProjectStore((s) => s.saving);
@@ -21,12 +20,6 @@ export function AppShell() {
 
   useEffect(() => {
     void hydrate();
-    const failsafe = window.setTimeout(() => {
-      if (!useProjectStore.getState().hydrated) {
-        useProjectStore.setState({ hydrated: true });
-      }
-    }, 4000);
-    return () => window.clearTimeout(failsafe);
   }, [hydrate]);
 
   useEffect(() => {
@@ -47,14 +40,6 @@ export function AppShell() {
       document.documentElement.classList.add("dark");
     }
   }, [project?.settings.theme]);
-
-  if (!hydrated) {
-    return (
-      <div className="flex h-full items-center justify-center bg-zinc-950 text-sm text-zinc-500">
-        Restoring local projects…
-      </div>
-    );
-  }
 
   const active = project?.openTabs.find((t) => t.id === project.activeTabId) ?? project?.openTabs[0];
 

@@ -1,14 +1,4 @@
 import { nanoid } from "nanoid";
-import {
-  addEdge,
-  applyEdgeChanges,
-  applyNodeChanges,
-  MarkerType,
-  type Connection,
-  type EdgeChange,
-  type NodeChange,
-  type Viewport,
-} from "@xyflow/react";
 import { create } from "zustand";
 import {
   deleteProject as dbDelete,
@@ -27,9 +17,11 @@ import type {
   AppNodeData,
   BrowserView,
   Canvas,
+  EdgeConnection,
   Project,
   ProjectSettings,
   Tab,
+  Viewport,
 } from "./types";
 import { DEFAULT_SETTINGS, NOTE_COLORS } from "./types";
 
@@ -63,8 +55,8 @@ type Store = {
   createCanvas: (name?: string) => string;
   renameCanvas: (id: string, name: string) => void;
   deleteCanvas: (id: string) => void;
-  applyNodeChanges: (canvasId: string, changes: NodeChange<AppNode>[]) => void;
-  applyEdgeChanges: (canvasId: string, changes: EdgeChange<AppEdge>[]) => void;
+  setCanvasNodes: (canvasId: string, nodes: AppNode[]) => void;
+  setCanvasEdges: (canvasId: string, edges: AppEdge[]) => void;
   setViewport: (canvasId: string, viewport: Viewport) => void;
   addLogsToCanvas: (
     canvasId: string,
@@ -73,7 +65,7 @@ type Store = {
   ) => void;
   addNote: (canvasId: string, position?: { x: number; y: number }, color?: string) => void;
   updateNodeData: (canvasId: string, nodeId: string, data: Partial<AppNodeData>) => void;
-  connectEdge: (canvasId: string, connection: Connection) => void;
+  connectEdge: (canvasId: string, connection: EdgeConnection) => void;
   updateEdge: (canvasId: string, edgeId: string, patch: Partial<AppEdge>) => void;
 
   createLogSet: (name: string) => string;
@@ -187,7 +179,7 @@ function upsertTab(project: Project, tab: Tab, active = true): Project {
 }
 
 export const useProjectStore = create<Store>((set, get) => ({
-  hydrated: false,
+  hydrated: true,
   dirty: false,
   saving: false,
   project: null,
@@ -395,22 +387,12 @@ export const useProjectStore = create<Store>((set, get) => ({
     });
   },
 
-  applyNodeChanges: (canvasId, changes) => {
-    patchProject(set, get, (p) =>
-      mapCanvas(p, canvasId, (c) => ({
-        ...c,
-        nodes: applyNodeChanges(changes, c.nodes) as AppNode[],
-      })),
-    );
+  setCanvasNodes: (canvasId, nodes) => {
+    patchProject(set, get, (p) => mapCanvas(p, canvasId, (c) => ({ ...c, nodes })));
   },
 
-  applyEdgeChanges: (canvasId, changes) => {
-    patchProject(set, get, (p) =>
-      mapCanvas(p, canvasId, (c) => ({
-        ...c,
-        edges: applyEdgeChanges(changes, c.edges) as AppEdge[],
-      })),
-    );
+  setCanvasEdges: (canvasId, edges) => {
+    patchProject(set, get, (p) => mapCanvas(p, canvasId, (c) => ({ ...c, edges })));
   },
 
   setViewport: (canvasId, viewport) => {
@@ -489,19 +471,21 @@ export const useProjectStore = create<Store>((set, get) => ({
   },
 
   connectEdge: (canvasId, connection) => {
+    if (!connection.source || !connection.target) return;
+    const edge: AppEdge = {
+      id: nanoid(),
+      source: connection.source,
+      target: connection.target,
+      sourceHandle: connection.sourceHandle ?? undefined,
+      targetHandle: connection.targetHandle ?? undefined,
+      type: "smoothstep",
+      markerEnd: { type: "arrowclosed", width: 16, height: 16 },
+      data: { label: "" },
+    };
     patchProject(set, get, (p) =>
       mapCanvas(p, canvasId, (c) => ({
         ...c,
-        edges: addEdge(
-          {
-            ...connection,
-            id: nanoid(),
-            type: "smoothstep",
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            data: { label: "" },
-          },
-          c.edges,
-        ),
+        edges: [...c.edges, edge],
       })),
     );
   },

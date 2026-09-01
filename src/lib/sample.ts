@@ -1,5 +1,4 @@
 import { nanoid } from "nanoid";
-import { MarkerType } from "@xyflow/react";
 import { hashPayload, shapeIdOf } from "./hash";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import type { AppEdge, AppNode, BrowserView, Canvas, LogRecord, LogSet, Project } from "./types";
@@ -211,7 +210,7 @@ export async function buildSampleProject(): Promise<Project> {
       sourceHandle: "r",
       targetHandle: "l",
       type: "smoothstep",
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+      markerEnd: { type: "arrowclosed", width: 16, height: 16 },
       data: { label: "same request_id" },
     });
   }
@@ -223,7 +222,7 @@ export async function buildSampleProject(): Promise<Project> {
       sourceHandle: "b",
       targetHandle: "t",
       type: "smoothstep",
-      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+      markerEnd: { type: "arrowclosed", width: 16, height: 16 },
       data: { label: "retry" },
     });
   }
