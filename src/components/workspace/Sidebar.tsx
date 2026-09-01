@@ -251,7 +251,10 @@ function OutlineRow({
         )}
       </button>
       {count != null && !editing ? (
-        <span className="text-[10px] tabular-nums text-zinc-600" title={`${count} logs`}>
+        <span
+          className="shrink-0 text-[11px] tabular-nums text-zinc-500"
+          title={`${count} logs`}
+        >
           {count}
         </span>
       ) : null}
