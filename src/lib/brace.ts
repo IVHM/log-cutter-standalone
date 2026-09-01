@@ -2,6 +2,8 @@ import type { AppNode, BraceDirection } from "./types";
 
 const LABEL_SPAN = 168;
 const BRACE_THICK = 20;
+/** Label chip + brace strip, packed next to each other. */
+const HORIZONTAL_THICK = 72;
 
 export function inferBraceLayout(
   start: { x: number; y: number },
@@ -25,7 +27,7 @@ export function inferBraceLayout(
   }
 
   const width = Math.max(180, Math.abs(dx));
-  const height = 72;
+  const height = HORIZONTAL_THICK;
   const x = Math.min(start.x, end.x);
   const direction: BraceDirection = toward.y >= midY ? "down" : "up";
   const y = direction === "down" ? midY - height + BRACE_THICK : midY - BRACE_THICK;
@@ -64,8 +66,16 @@ export function rotatedBraceBox(
   const cy = position.y + height / 2;
   const fromVertical = from === "left" || from === "right";
   const toVertical = to === "left" || to === "right";
-  const w = fromVertical === toVertical ? width : Math.max(toVertical ? 140 : 180, height);
-  const h = fromVertical === toVertical ? height : Math.max(toVertical ? 120 : 72, width);
+  if (fromVertical === toVertical) {
+    return { x: position.x, y: position.y, width, height };
+  }
+  if (toVertical) {
+    const w = LABEL_SPAN;
+    const h = Math.max(120, width);
+    return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
+  }
+  const w = Math.max(180, height);
+  const h = HORIZONTAL_THICK;
   return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
 }
 

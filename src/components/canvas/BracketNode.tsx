@@ -58,22 +58,40 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
         color="#7dd3fc"
         lineClassName="!pointer-events-none"
       />
-      <BraceGlyph direction={direction} />
-      <input
-        ref={inputRef}
-        size={Math.max(12, data.label.length + 2)}
+      <div
         className={cn(
-          "nodrag nopan nowheel absolute z-10 max-w-[calc(100%-3rem)] cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400",
-          direction === "right" && "top-1/2 left-1.5 -translate-y-1/2 text-right",
-          direction === "left" && "top-1/2 right-1.5 -translate-y-1/2 text-left",
-          direction === "down" && "top-1.5 left-1/2 -translate-x-1/2 text-center",
-          direction === "up" && "bottom-1.5 left-1/2 -translate-x-1/2 text-center",
+          "flex h-full w-full justify-end",
+          direction === "right" && "flex-row",
+          direction === "left" && "flex-row-reverse",
+          direction === "down" && "flex-col",
+          direction === "up" && "flex-col-reverse",
         )}
-        placeholder="Group label"
-        value={data.label}
-        onChange={(e) => updateNodeData(canvasId, id, { label: e.target.value })}
-        onPointerDown={(e) => e.stopPropagation()}
-      />
+      >
+        <div
+          className={cn(
+            "flex items-center",
+            vertical
+              ? cn("min-w-0 flex-1 px-1.5", direction === "right" ? "justify-end" : "justify-start")
+              : "h-9 shrink-0 justify-center px-2",
+          )}
+        >
+          <input
+            ref={inputRef}
+            size={Math.max(12, data.label.length + 2)}
+            className={cn(
+              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400",
+              direction === "right" && "text-right",
+              direction === "left" && "text-left",
+              (direction === "up" || direction === "down") && "text-center",
+            )}
+            placeholder="Group label"
+            value={data.label}
+            onChange={(e) => updateNodeData(canvasId, id, { label: e.target.value })}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+        </div>
+        <BraceGlyph direction={direction} />
+      </div>
       {selected ? (
         <div
           className="pointer-events-none absolute -top-3 -right-3 z-10 grid grid-cols-3 grid-rows-3 rounded-md border border-sky-700 bg-zinc-950/95 p-0.5 shadow"
@@ -106,61 +124,26 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
 }
 
 function BraceGlyph({ direction }: { direction: BraceDirection }) {
-  const stroke = (
-    <path
-      d={direction === "up" ? PATH_UP : direction === "down" ? PATH_DOWN : PATH_RIGHT}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3.5"
-      strokeLinecap="round"
-      vectorEffect="non-scaling-stroke"
-    />
-  );
-
-  if (direction === "right") {
-    return (
-      <svg
-        viewBox="0 0 28 200"
-        preserveAspectRatio="none"
-        className="pointer-events-none absolute inset-y-0 right-0 h-full w-8 origin-center text-sky-300"
-        aria-hidden
-      >
-        {stroke}
-      </svg>
-    );
-  }
-  if (direction === "left") {
-    return (
-      <svg
-        viewBox="0 0 28 200"
-        preserveAspectRatio="none"
-        className="pointer-events-none absolute inset-y-0 left-0 h-full w-8 origin-center -scale-x-100 text-sky-300"
-        aria-hidden
-      >
-        {stroke}
-      </svg>
-    );
-  }
-  if (direction === "down") {
-    return (
-      <svg
-        viewBox="0 0 200 28"
-        preserveAspectRatio="none"
-        className="pointer-events-none absolute bottom-0 left-0 h-8 w-full origin-center text-sky-300"
-        aria-hidden
-      >
-        {stroke}
-      </svg>
-    );
-  }
+  const vertical = direction === "left" || direction === "right";
   return (
     <svg
-      viewBox="0 0 200 28"
+      viewBox={vertical ? "0 0 28 200" : "0 0 200 28"}
       preserveAspectRatio="none"
-      className="pointer-events-none absolute top-0 left-0 h-8 w-full origin-center text-sky-300"
+      className={cn(
+        "pointer-events-none shrink-0 origin-center text-sky-300",
+        vertical ? "h-full w-8" : "h-8 w-full",
+        direction === "left" && "-scale-x-100",
+      )}
       aria-hidden
     >
-      {stroke}
+      <path
+        d={direction === "up" ? PATH_UP : direction === "down" ? PATH_DOWN : PATH_RIGHT}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }
