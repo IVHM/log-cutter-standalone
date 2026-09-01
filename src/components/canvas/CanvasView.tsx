@@ -37,7 +37,12 @@ import { handleFlowPosition, nearestHandle, type EdgeHandleId } from "@/lib/arro
 import { useProjectStore } from "@/lib/store";
 import type { AppEdge, AppNode } from "@/lib/types";
 import { BracketNode } from "./BracketNode";
-import { CanvasArrowContext, CanvasIdContext, type CanvasTool } from "./canvas-context";
+import {
+  CanvasArrowContext,
+  CanvasIdContext,
+  type ArrowEndpoint,
+  type CanvasTool,
+} from "./canvas-context";
 import { LabeledEdge } from "./LabeledEdge";
 import { LogNode } from "./LogNode";
 import { NoteNode } from "./NoteNode";
@@ -81,6 +86,7 @@ function CanvasInner({ canvasId }: Props) {
   const [tool, setTool] = useState<CanvasTool>("select");
   const [arrowStart, setArrowStart] = useState<{ nodeId: string; handle: EdgeHandleId } | null>(null);
   const [arrowCursor, setArrowCursor] = useState<{ x: number; y: number } | null>(null);
+  const [reconnect, setReconnect] = useState<{ edgeId: string; end: ArrowEndpoint } | null>(null);
   const [bracketStart, setBracketStart] = useState<{ x: number; y: number } | null>(null);
   const [bracketCursor, setBracketCursor] = useState<{ x: number; y: number } | null>(null);
   const [addLogsOpen, setAddLogsOpen] = useState(false);
@@ -92,6 +98,7 @@ function CanvasInner({ canvasId }: Props) {
         setTool("select");
         setArrowStart(null);
         setArrowCursor(null);
+        setReconnect(null);
         setBracketStart(null);
         setBracketCursor(null);
       }
@@ -168,8 +175,33 @@ function CanvasInner({ canvasId }: Props) {
     [canvasId, connectEdge, edgeStyle, updateEdge],
   );
 
+  const completeReconnect = useCallback(
+    (nodeId: string, handle: EdgeHandleId) => {
+      if (!reconnect) return;
+      const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+      const edge = current?.edges.find((e) => e.id === reconnect.edgeId);
+      if (!edge) {
+        setReconnect(null);
+        setArrowCursor(null);
+        return;
+      }
+      const patch =
+        reconnect.end === "source"
+          ? { source: nodeId, sourceHandle: handle }
+          : { target: nodeId, targetHandle: handle };
+      updateEdge(canvasId, edge.id, patch);
+      setReconnect(null);
+      setArrowCursor(null);
+    },
+    [canvasId, reconnect, updateEdge],
+  );
+
   const onAnchorClick = useCallback(
     (nodeId: string, handle: EdgeHandleId) => {
+      if (reconnect) {
+        completeReconnect(nodeId, handle);
+        return;
+      }
       if (tool !== "arrow") return;
       if (!arrowStart) {
         setArrowStart({ nodeId, handle });
@@ -178,17 +210,46 @@ function CanvasInner({ canvasId }: Props) {
       }
       finishArrow(arrowStart, { nodeId, handle });
     },
-    [arrowStart, finishArrow, tool],
+    [arrowStart, completeReconnect, finishArrow, reconnect, tool],
+  );
+
+  const onEndpointClick = useCallback(
+    (edgeId: string, end: ArrowEndpoint) => {
+      const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+      if (!current) return;
+      const edge = current.edges.find((e) => e.id === edgeId);
+      setCanvasEdges(
+        canvasId,
+        current.edges.map((e) => ({ ...e, selected: e.id === edgeId })),
+      );
+      setCanvasNodes(
+        canvasId,
+        current.nodes.map((n) => ({ ...n, selected: false })),
+      );
+      setArrowStart(null);
+      setTool("select");
+      if (edge) {
+        const movingNodeId = end === "source" ? edge.source : edge.target;
+        const movingHandle = end === "source" ? edge.sourceHandle : edge.targetHandle;
+        const movingNode = current.nodes.find((n) => n.id === movingNodeId);
+        if (movingNode) setArrowCursor(handleFlowPosition(movingNode, movingHandle));
+      }
+      setReconnect({ edgeId, end });
+      toast.message("Click a new anchor for this end.");
+    },
+    [canvasId, setCanvasEdges, setCanvasNodes],
   );
 
   const applyEdgeStyle = useCallback(
     (style: EdgeStyle) => {
-      setEdgeStyle(style);
       const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
-      if (!current) return;
-      const selectedIds = current.edges.filter((e) => e.selected).map((e) => e.id);
-      const ids = selectedIds.length > 0 ? selectedIds : activeEdgeIds.current;
-      for (const id of ids) {
+      const selectedIds = current?.edges.filter((e) => e.selected).map((e) => e.id) ?? [];
+      if (selectedIds.length === 0) {
+        setEdgeStyle(style);
+        return;
+      }
+      setEdgeStyle(style);
+      for (const id of selectedIds) {
         updateEdge(canvasId, id, { type: style });
       }
     },
@@ -215,8 +276,12 @@ function CanvasInner({ canvasId }: Props) {
   );
 
   const selectedEdge = canvas?.edges.find((e) => e.selected);
+  const highlightedStyle = selectedEdge ? normalizeEdgeStyle(selectedEdge.type) : null;
   useEffect(() => {
-    if (!selectedEdge) return;
+    if (!selectedEdge) {
+      activeEdgeIds.current = [];
+      return;
+    }
     activeEdgeIds.current = [selectedEdge.id];
     const next = normalizeEdgeStyle(selectedEdge.type);
     if (next) setEdgeStyle(next);
@@ -230,15 +295,28 @@ function CanvasInner({ canvasId }: Props) {
     );
   }
 
-  const placing = tool !== "select";
-  const arrowStartNode = arrowStart
-    ? canvas.nodes.find((n) => n.id === arrowStart.nodeId)
-    : undefined;
-  const arrowStartPos =
-    arrowStart && arrowStartNode ? handleFlowPosition(arrowStartNode, arrowStart.handle) : null;
+  const placing = tool !== "select" || Boolean(reconnect);
+  const showAnchors = tool === "arrow" || Boolean(reconnect);
+  const guideStart = reconnect
+    ? reconnectFixedPosition(canvas.nodes, canvas.edges, reconnect)
+    : arrowStart
+      ? (() => {
+          const node = canvas.nodes.find((n) => n.id === arrowStart.nodeId);
+          return node ? handleFlowPosition(node, arrowStart.handle) : null;
+        })()
+      : null;
+  const showGuide = Boolean(guideStart && arrowCursor && (arrowStart || reconnect));
 
   return (
-    <CanvasArrowContext.Provider value={{ tool, onAnchorClick }}>
+    <CanvasArrowContext.Provider
+      value={{
+        tool,
+        showAnchors,
+        reconnectingEdgeId: reconnect?.edgeId ?? null,
+        onAnchorClick,
+        onEndpointClick,
+      }}
+    >
     <div className="h-full w-full">
       <ReactFlow
         nodes={canvas.nodes}
@@ -249,7 +327,8 @@ function CanvasInner({ canvasId }: Props) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         connectionMode={ConnectionMode.Loose}
-        nodesConnectable={tool === "arrow"}
+        isValidConnection={() => true}
+        nodesConnectable={showAnchors}
         elementsSelectable
         connectionLineStyle={{
           stroke: "#7dd3fc",
@@ -275,31 +354,31 @@ function CanvasInner({ canvasId }: Props) {
         minZoom={0.15}
         maxZoom={2.5}
         colorMode="dark"
-        className={tool === "arrow" ? "drawing-arrow" : undefined}
+        className={showAnchors ? "drawing-arrow" : undefined}
         proOptions={{ hideAttribution: true }}
         onPaneContextMenu={(e) => e.preventDefault()}
         onPointerMove={(e) => {
           const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
           if (tool === "bracket" && bracketStart) setBracketCursor(pos);
-          if (tool === "arrow" && arrowStart) setArrowCursor(pos);
+          if ((tool === "arrow" && arrowStart) || reconnect) setArrowCursor(pos);
         }}
         onNodeClick={(e, node) => {
-          if (tool === "select") {
+          if (tool === "select" && !reconnect) {
             const edgeId = edgeIdAtPoint(e.clientX, e.clientY);
             if (edgeId) {
               selectOnlyEdge(edgeId);
               return;
             }
           }
-          if (tool !== "arrow") return;
-          if (node.type === "bracket") return;
-          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-          onAnchorClick(node.id, nearestHandle(node, pos));
+          if (showAnchors) {
+            if (node.type === "bracket") return;
+            const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+            onAnchorClick(node.id, nearestHandle(node, pos));
+          }
         }}
         onEdgeClick={(_, edge) => {
+          if (reconnect) return;
           activeEdgeIds.current = [edge.id];
-          const next = normalizeEdgeStyle(edge.type);
-          if (next) setEdgeStyle(next);
           if (tool === "arrow") {
             setArrowStart(null);
             setArrowCursor(null);
@@ -322,12 +401,25 @@ function CanvasInner({ canvasId }: Props) {
             toast.message("Type a group label on the brace.");
             return;
           }
+          if (reconnect) {
+            setReconnect(null);
+            setArrowCursor(null);
+            return;
+          }
           if (tool === "arrow") return;
+          const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+          if (current?.edges.some((edge) => edge.selected)) {
+            setCanvasEdges(
+              canvasId,
+              current.edges.map((edge) => ({ ...edge, selected: false })),
+            );
+            activeEdgeIds.current = [];
+          }
           if (e.detail === 2) addNote(canvasId, pos);
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#3f3f46" />
-        {tool === "arrow" && arrowStartPos && arrowCursor ? (
+        {showGuide && guideStart && arrowCursor ? (
           <ViewportPortal>
             <svg
               className="pointer-events-none absolute overflow-visible"
@@ -335,8 +427,8 @@ function CanvasInner({ canvasId }: Props) {
               aria-hidden
             >
               <line
-                x1={arrowStartPos.x}
-                y1={arrowStartPos.y}
+                x1={guideStart.x}
+                y1={guideStart.y}
                 x2={arrowCursor.x}
                 y2={arrowCursor.y}
                 stroke="#7dd3fc"
@@ -344,7 +436,7 @@ function CanvasInner({ canvasId }: Props) {
                 strokeDasharray="7 5"
                 strokeLinecap="round"
               />
-              <circle cx={arrowStartPos.x} cy={arrowStartPos.y} r={3.5} fill="#7dd3fc" />
+              <circle cx={guideStart.x} cy={guideStart.y} r={3.5} fill="#7dd3fc" />
             </svg>
           </ViewportPortal>
         ) : null}
@@ -397,6 +489,7 @@ function CanvasInner({ canvasId }: Props) {
                 setTool((t) => (t === "arrow" ? "select" : "arrow"));
                 setArrowStart(null);
                 setArrowCursor(null);
+                setReconnect(null);
                 setBracketStart(null);
               }}
             >
@@ -412,15 +505,16 @@ function CanvasInner({ canvasId }: Props) {
                 setBracketCursor(null);
                 setArrowStart(null);
                 setArrowCursor(null);
+                setReconnect(null);
               }}
             >
               <Braces className="size-3.5" />
               Brace
             </Button>
             <span className="mx-1 h-4 w-px bg-zinc-800" />
-            <EdgeStyleButton current={edgeStyle} value="smoothstep" onClick={applyEdgeStyle} icon={Workflow} label="Elbow" />
-            <EdgeStyleButton current={edgeStyle} value="default" onClick={applyEdgeStyle} icon={Spline} label="Curve" />
-            <EdgeStyleButton current={edgeStyle} value="straight" onClick={applyEdgeStyle} icon={Slash} label="Straight" />
+            <EdgeStyleButton current={highlightedStyle} value="smoothstep" onClick={applyEdgeStyle} icon={Workflow} label="Elbow" />
+            <EdgeStyleButton current={highlightedStyle} value="default" onClick={applyEdgeStyle} icon={Spline} label="Curve" />
+            <EdgeStyleButton current={highlightedStyle} value="straight" onClick={applyEdgeStyle} icon={Slash} label="Straight" />
           </div>
           <div className="relative min-h-9 min-w-0 flex-1">
             <Button
@@ -433,7 +527,13 @@ function CanvasInner({ canvasId }: Props) {
             </Button>
           </div>
         </Panel>
-        {tool === "arrow" ? (
+        {reconnect ? (
+          <Panel position="top-center">
+            <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
+              Click a new anchor for this {reconnect.end === "source" ? "tail" : "head"}. Esc to cancel.
+            </div>
+          </Panel>
+        ) : tool === "arrow" ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
               {arrowStart ? "Click an anchor on the destination card." : "Click a side anchor, then the other end."} Esc to cancel.
@@ -453,6 +553,7 @@ function CanvasInner({ canvasId }: Props) {
               Empty canvas. Use + Add Log(s), or place logs from the browser. Drag a box to
               multi-select, middle-click to pan, Ctrl+wheel to zoom. Click Arrow, then two side
               anchors, to connect them. Click an arrow’s line to change Elbow, Curve, or Straight.
+              Click the head or tail to move that end to another anchor.
             </div>
           </Panel>
         ) : null}
@@ -485,7 +586,7 @@ function EdgeStyleButton({
   icon: Icon,
   label,
 }: {
-  current: string;
+  current: string | null;
   value: "smoothstep" | "default" | "straight";
   onClick: (v: "smoothstep" | "default" | "straight") => void;
   icon: typeof Spline;
@@ -509,6 +610,21 @@ function EdgeStyleButton({
       {label}
     </Button>
   );
+}
+
+function reconnectFixedPosition(
+  nodes: AppNode[],
+  edges: AppEdge[],
+  reconnect: { edgeId: string; end: ArrowEndpoint },
+): { x: number; y: number } | null {
+  const edge = edges.find((e) => e.id === reconnect.edgeId);
+  if (!edge) return null;
+  const fixedIsSource = reconnect.end === "target";
+  const nodeId = fixedIsSource ? edge.source : edge.target;
+  const handle = fixedIsSource ? edge.sourceHandle : edge.targetHandle;
+  const node = nodes.find((n) => n.id === nodeId);
+  if (!node) return null;
+  return handleFlowPosition(node, handle);
 }
 
 function edgeIdAtPoint(clientX: number, clientY: number): string | null {

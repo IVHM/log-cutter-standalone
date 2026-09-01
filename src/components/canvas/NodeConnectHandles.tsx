@@ -1,48 +1,42 @@
 "use client";
 
-import { Handle, Position, useNodeId } from "@xyflow/react";
-import type { EdgeHandleId } from "@/lib/arrow-anchor";
+import { Handle, useNodeId } from "@xyflow/react";
+import { EDGE_ANCHORS, handleOffsetStyle } from "@/lib/arrow-anchor";
 import { cn } from "@/lib/utils";
 import { useCanvasArrow } from "./canvas-context";
 
-const SIDES: { id: EdgeHandleId; position: Position }[] = [
-  { id: "t", position: Position.Top },
-  { id: "r", position: Position.Right },
-  { id: "b", position: Position.Bottom },
-  { id: "l", position: Position.Left },
-];
-
-/** Four side anchors. Visible while drawing an arrow; each side can be start or end. */
+/** Three anchors on each side. Any number of arrows may share an anchor. */
 export function NodeConnectHandles() {
   const nodeId = useNodeId();
-  const { tool, onAnchorClick } = useCanvasArrow();
-  const show = tool === "arrow";
+  const { showAnchors, onAnchorClick } = useCanvasArrow();
 
   return (
     <>
-      {SIDES.map(({ id, position }) => (
-        <span key={id}>
+      {EDGE_ANCHORS.map((spec) => (
+        <span key={spec.id}>
           <Handle
             type="target"
-            id={id}
-            position={position}
-            isConnectable={show}
-            className={handleClass(show, "target")}
+            id={spec.id}
+            position={spec.position}
+            isConnectable={showAnchors}
+            style={handleOffsetStyle(spec)}
+            className={handleClass(showAnchors, "target")}
           />
           <Handle
             type="source"
-            id={id}
-            position={position}
-            isConnectable={show}
-            className={handleClass(show, "source")}
+            id={spec.id}
+            position={spec.position}
+            isConnectable={showAnchors}
+            style={handleOffsetStyle(spec)}
+            className={handleClass(showAnchors, "source")}
             onPointerDown={(e) => {
-              if (!show) return;
+              if (!showAnchors) return;
               e.stopPropagation();
             }}
             onClick={(e) => {
               e.stopPropagation();
-              if (!nodeId || !show) return;
-              onAnchorClick(nodeId, id);
+              if (!nodeId || !showAnchors) return;
+              onAnchorClick(nodeId, spec.id);
             }}
           />
         </span>
@@ -56,9 +50,9 @@ function handleClass(show: boolean, kind: "source" | "target") {
     "!rounded-full !border-2",
     show
       ? cn(
-          "arrow-anchor !size-4 !opacity-100 !border-sky-100 !bg-sky-500 !pointer-events-auto",
+          "arrow-anchor !size-3 !opacity-100 !border-sky-100 !bg-sky-500 !pointer-events-auto",
           kind === "target" && "!pointer-events-none",
         )
-      : "!size-2.5 !border-0 !bg-transparent !opacity-0 !pointer-events-none",
+      : "!size-2 !border-0 !bg-transparent !opacity-0 !pointer-events-none",
   );
 }
