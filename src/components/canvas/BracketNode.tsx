@@ -6,6 +6,7 @@ import { useProjectStore } from "@/lib/store";
 import type { BracketNodeData } from "@/lib/types";
 import { useCanvasId } from "./canvas-context";
 
+/** `{` opens to the right, so the label sits on the left (outside the grouped logs). */
 export function BracketNode({ id, data, selected }: NodeProps & { data: BracketNodeData }) {
   const canvasId = useCanvasId();
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
@@ -23,10 +24,18 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
         minHeight={80}
         color="#7dd3fc"
       />
+      <input
+        ref={inputRef}
+        className="nodrag nopan nowheel absolute top-1/2 left-1.5 w-[calc(100%-2.5rem)] -translate-y-1/2 cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-right text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400"
+        placeholder="Group label"
+        value={data.label}
+        onChange={(e) => updateNodeData(canvasId, id, { label: e.target.value })}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
       <svg
         viewBox="0 0 28 200"
         preserveAspectRatio="none"
-        className="pointer-events-none absolute inset-y-0 left-0 h-full w-8 text-sky-300"
+        className="pointer-events-none absolute inset-y-0 right-0 h-full w-8 text-sky-300"
         aria-hidden
       >
         <path
@@ -44,14 +53,6 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <input
-        ref={inputRef}
-        className="nodrag nopan nowheel absolute top-1/2 left-8 w-[calc(100%-2.25rem)] -translate-y-1/2 cursor-text rounded-md border border-sky-700/80 bg-zinc-950 px-2 py-1 text-[12px] text-sky-100 shadow-lg outline-none placeholder:text-zinc-500 focus:border-sky-400"
-        placeholder="Group label"
-        value={data.label}
-        onChange={(e) => updateNodeData(canvasId, id, { label: e.target.value })}
-        onPointerDown={(e) => e.stopPropagation()}
-      />
     </div>
   );
 }

@@ -467,13 +467,14 @@ export const useProjectStore = create<Store>((set, get) => ({
   addBracket: (canvasId, start, end) => {
     const top = Math.min(start.y, end.y);
     const height = Math.max(120, Math.abs(end.y - start.y));
-    const x = Math.min(start.x, end.x) - 24;
+    const width = 168;
+    const x = Math.min(start.x, end.x) - width + 20;
     const node: AppNode = {
       id: nanoid(),
       type: "bracket",
       position: { x, y: top },
-      style: { width: 168, height, overflow: "visible" },
-      width: 168,
+      style: { width, height, overflow: "visible" },
+      width,
       height,
       selected: true,
       data: { kind: "bracket", label: "" },
