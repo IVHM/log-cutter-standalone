@@ -466,17 +466,23 @@ export const useProjectStore = create<Store>((set, get) => ({
 
   addBracket: (canvasId, start, end) => {
     const top = Math.min(start.y, end.y);
-    const height = Math.max(80, Math.abs(end.y - start.y));
-    const x = Math.min(start.x, end.x);
+    const height = Math.max(120, Math.abs(end.y - start.y));
+    const x = Math.min(start.x, end.x) - 24;
     const node: AppNode = {
       id: nanoid(),
       type: "bracket",
       position: { x, y: top },
-      style: { width: 120, height },
+      style: { width: 168, height, overflow: "visible" },
+      width: 168,
+      height,
+      selected: true,
       data: { kind: "bracket", label: "" },
     };
     patchProject(set, get, (p) =>
-      mapCanvas(p, canvasId, (c) => ({ ...c, nodes: [...c.nodes, node] })),
+      mapCanvas(p, canvasId, (c) => ({
+        ...c,
+        nodes: [...c.nodes.map((n) => ({ ...n, selected: false })), node],
+      })),
     );
   },
 

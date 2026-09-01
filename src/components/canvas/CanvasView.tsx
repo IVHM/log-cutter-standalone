@@ -210,6 +210,7 @@ function CanvasInner({ canvasId }: Props) {
             addBracket(canvasId, bracketStart, pos);
             setBracketStart(null);
             setTool("select");
+            toast.message("Type a group label on the brace.");
             return;
           }
           if (tool === "arrow") return;
