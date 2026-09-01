@@ -80,10 +80,10 @@ export function BracketNode({ id, data, selected }: NodeProps & { data: BracketN
             ref={inputRef}
             size={Math.max(10, data.label.length + 2)}
             className={cn(
-              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md px-2 py-1 text-[15px] font-bold text-sky-50/95 outline-none placeholder:font-semibold placeholder:text-sky-200/40",
+              "nodrag nopan nowheel z-10 max-w-full cursor-text rounded-md border bg-sky-950/75 px-2 py-1 text-[15px] font-bold text-white outline-none placeholder:font-semibold placeholder:text-sky-100/70",
               selected
-                ? "border border-sky-500/40 bg-sky-950/40 focus:border-sky-400/80"
-                : "border border-transparent bg-transparent",
+                ? "border-sky-400/55 focus:border-sky-300/90"
+                : "border-sky-500/30",
               direction === "right" && "text-right",
               direction === "left" && "text-left",
               (direction === "up" || direction === "down") && "text-center",
