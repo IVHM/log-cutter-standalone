@@ -89,12 +89,13 @@ export function LabeledEdge({
             className="nodrag nopan pointer-events-auto absolute origin-center"
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              zIndex: 30,
             }}
           >
             {editing ? (
               <input
                 autoFocus
-                className="rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-100 outline-none"
+                className="rounded-md border-0 bg-zinc-800/60 px-1.5 py-0.5 text-[11px] text-zinc-100 outline-none shadow-none"
                 defaultValue={label}
                 onBlur={(e) => {
                   updateEdge(canvasId, id, { data: { label: e.target.value } });
@@ -109,7 +110,7 @@ export function LabeledEdge({
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="rounded bg-zinc-900/90 px-1.5 py-0.5 text-[11px] text-zinc-200 shadow"
+                className="rounded-md border-0 bg-zinc-800/60 px-1.5 py-0.5 text-[11px] text-zinc-100 shadow-none"
               >
                 {label || "Add label"}
               </button>

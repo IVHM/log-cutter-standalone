@@ -16,6 +16,7 @@ export type CanvasArrowUi = {
   tool: CanvasTool;
   showAnchors: boolean;
   reconnectingEdgeId: string | null;
+  occupiedAnchors: ReadonlySet<string>;
   onAnchorClick: (nodeId: string, handle: EdgeHandleId) => void;
   onEndpointClick: (edgeId: string, end: ArrowEndpoint) => void;
 };
@@ -24,6 +25,7 @@ export const CanvasArrowContext = createContext<CanvasArrowUi>({
   tool: "select",
   showAnchors: false,
   reconnectingEdgeId: null,
+  occupiedAnchors: new Set(),
   onAnchorClick: () => {},
   onEndpointClick: () => {},
 });

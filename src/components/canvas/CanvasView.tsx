@@ -280,6 +280,17 @@ function CanvasInner({ canvasId }: Props) {
 
   const selectedEdge = canvas?.edges.find((e) => e.selected);
   const highlightedStyle = selectedEdge ? normalizeEdgeStyle(selectedEdge.type) : null;
+  const occupiedAnchors = useMemo(() => {
+    const keys = new Set<string>();
+    if (!canvas) return keys;
+    for (const e of canvas.edges) {
+      const skipSource = reconnect?.edgeId === e.id && reconnect.end === "source";
+      const skipTarget = reconnect?.edgeId === e.id && reconnect.end === "target";
+      if (!skipSource) keys.add(`${e.source}:${e.sourceHandle ?? ""}`);
+      if (!skipTarget) keys.add(`${e.target}:${e.targetHandle ?? ""}`);
+    }
+    return keys;
+  }, [canvas, reconnect]);
   useEffect(() => {
     if (!selectedEdge) {
       activeEdgeIds.current = [];
@@ -316,6 +327,7 @@ function CanvasInner({ canvasId }: Props) {
         tool,
         showAnchors,
         reconnectingEdgeId: reconnect?.edgeId ?? null,
+        occupiedAnchors,
         onAnchorClick,
         onEndpointClick,
       }}

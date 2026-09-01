@@ -55,13 +55,13 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   }
 
   return (
-    <div
-      className={cn(
-        "w-[320px] overflow-hidden rounded-lg border bg-zinc-950/95 shadow-xl backdrop-blur-sm",
-        selected ? "border-sky-400 ring-2 ring-sky-400/30" : "border-zinc-700",
-      )}
-    >
-      <NodeConnectHandles />
+    <div className="relative w-[320px]">
+      <div
+        className={cn(
+          "overflow-hidden rounded-lg border bg-zinc-950/95 shadow-xl backdrop-blur-sm",
+          selected ? "border-sky-400 ring-2 ring-sky-400/30" : "border-zinc-700",
+        )}
+      >
 
       <div
         className="flex items-start gap-1.5 border-b border-black/20 px-2 py-1.5"
@@ -130,6 +130,8 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
           />
         </label>
       </div>
+      </div>
+      <NodeConnectHandles />
     </div>
   );
 }

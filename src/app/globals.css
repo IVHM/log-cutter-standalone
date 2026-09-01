@@ -147,6 +147,7 @@
 
 .react-flow__node {
   font-family: inherit;
+  overflow: visible;
 }
 
 .react-flow__attribution {
@@ -168,4 +169,10 @@
 .react-flow__handle.arrow-anchor {
   pointer-events: all !important;
   z-index: 20;
+  border-radius: 9999px !important;
+  width: 12px !important;
+  height: 12px !important;
+  min-width: 12px !important;
+  min-height: 12px !important;
+  border: 0 !important;
 }
