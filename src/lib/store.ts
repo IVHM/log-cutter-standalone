@@ -8,7 +8,7 @@ import {
   putProject,
   setLastProjectId,
 } from "./db";
-import { inferBraceLayout, nextBraceDirection, rotatedBraceBox } from "./brace";
+import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
 import { toLogRecords, type ParsedRow } from "./import-parse";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import { buildSampleProject } from "./sample";
@@ -16,6 +16,7 @@ import type {
   AppEdge,
   AppNode,
   AppNodeData,
+  BraceDirection,
   BrowserView,
   Canvas,
   EdgeConnection,
@@ -71,6 +72,7 @@ type Store = {
     end: { x: number; y: number },
   ) => void;
   rotateBracket: (canvasId: string, nodeId: string) => void;
+  setBracketDirection: (canvasId: string, nodeId: string, direction: BraceDirection) => void;
   updateNodeData: (canvasId: string, nodeId: string, data: Partial<AppNodeData>) => void;
   connectEdge: (canvasId: string, connection: EdgeConnection) => void;
   updateEdge: (canvasId: string, edgeId: string, patch: Partial<AppEdge>) => void;
@@ -489,25 +491,16 @@ export const useProjectStore = create<Store>((set, get) => ({
   },
 
   rotateBracket: (canvasId, nodeId) => {
+    const node = get().project?.canvases.find((c) => c.id === canvasId)?.nodes.find((n) => n.id === nodeId);
+    const from = node?.data.kind === "bracket" ? (node.data.direction ?? "right") : "right";
+    get().setBracketDirection(canvasId, nodeId, nextBraceDirection(from));
+  },
+
+  setBracketDirection: (canvasId, nodeId, direction) => {
     patchProject(set, get, (p) =>
       mapCanvas(p, canvasId, (c) => ({
         ...c,
-        nodes: c.nodes.map((n) => {
-          if (n.id !== nodeId || n.type !== "bracket") return n;
-          const from = n.data.kind === "bracket" ? (n.data.direction ?? "right") : "right";
-          const to = nextBraceDirection(from);
-          const width = (n.width as number | undefined) ?? (n.style?.width as number | undefined) ?? 168;
-          const height = (n.height as number | undefined) ?? (n.style?.height as number | undefined) ?? 120;
-          const box = rotatedBraceBox(n.position, width, height, from, to);
-          return {
-            ...n,
-            position: { x: box.x, y: box.y },
-            width: box.width,
-            height: box.height,
-            style: { ...n.style, width: box.width, height: box.height, overflow: "visible" },
-            data: { ...n.data, direction: to } as AppNodeData,
-          };
-        }),
+        nodes: c.nodes.map((n) => (n.id === nodeId ? reorientBracketNode(n, direction) : n)),
       })),
     );
   },

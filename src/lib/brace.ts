@@ -25,7 +25,7 @@ export function inferBraceLayout(
   }
 
   const width = Math.max(180, Math.abs(dx));
-  const height = 56;
+  const height = 72;
   const x = Math.min(start.x, end.x);
   const direction: BraceDirection = toward.y >= midY ? "down" : "up";
   const y = direction === "down" ? midY - height + BRACE_THICK : midY - BRACE_THICK;
@@ -65,6 +65,25 @@ export function rotatedBraceBox(
   const fromVertical = from === "left" || from === "right";
   const toVertical = to === "left" || to === "right";
   const w = fromVertical === toVertical ? width : Math.max(toVertical ? 140 : 180, height);
-  const h = fromVertical === toVertical ? height : Math.max(toVertical ? 120 : 56, width);
+  const h = fromVertical === toVertical ? height : Math.max(toVertical ? 120 : 72, width);
   return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
+}
+
+export function reorientBracketNode(node: AppNode, to: BraceDirection): AppNode {
+  if (node.type !== "bracket" || node.data.kind !== "bracket") return node;
+  const from = node.data.direction ?? "right";
+  if (from === to) return node;
+  const width =
+    (node.width as number | undefined) ?? (node.style?.width as number | undefined) ?? 168;
+  const height =
+    (node.height as number | undefined) ?? (node.style?.height as number | undefined) ?? 120;
+  const box = rotatedBraceBox(node.position, width, height, from, to);
+  return {
+    ...node,
+    position: { x: box.x, y: box.y },
+    width: box.width,
+    height: box.height,
+    style: { ...node.style, width: box.width, height: box.height, overflow: "visible" },
+    data: { ...node.data, direction: to },
+  };
 }

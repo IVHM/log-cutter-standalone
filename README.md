@@ -23,7 +23,7 @@ There is no backend and no account. Duplicate logs are skipped with a SHA-256 ha
 1. Create a project (or open the sample incident).
 2. Import a `.csv` (JSON in a cell, or one object per row), `.json`, or `.jsonl`.
 3. In the log browser, check schema fields to build a table view. Select rows and **Place on canvas**.
-4. On a canvas: drag to box-select, hold **Space** or middle-click to pan, scroll to zoom. Expand a log and click the pin next to a field so it stays visible when the card is collapsed. Double-click the pane for a sticky note. Drag from a node handle to draw an adjustable arrow.
+4. On a canvas: drag to box-select, middle-click to pan, Ctrl+wheel to zoom. Expand a log and click the pin next to a field so it stays visible when the card is collapsed. Double-click the pane for a sticky note. Use **Arrow** then two cards to connect them. **Brace** places a labeled `{` with two clicks; click the brace and use the arrows to point it left, right, up, or down.
 
 ## Import formats
 
