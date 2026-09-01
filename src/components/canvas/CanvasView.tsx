@@ -259,51 +259,56 @@ function CanvasInner({ canvasId }: Props) {
             }
           />
         ) : null}
-        <Panel position="top-left" className="flex flex-wrap items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/80 p-1 backdrop-blur">
-          <ToolHint />
-          <Button size="sm" variant="ghost" onClick={() => addNote(canvasId)}>
-            <StickyNote className="size-3.5" />
-            Note
-          </Button>
-          <Button
-            size="sm"
-            variant={tool === "arrow" ? "secondary" : "ghost"}
-            onClick={() => {
-              setTool((t) => (t === "arrow" ? "select" : "arrow"));
-              setArrowSource(null);
-              setBracketStart(null);
-            }}
-          >
-            <ArrowRight className="size-3.5" />
-            Arrow
-          </Button>
-          <Button
-            size="sm"
-            variant={tool === "bracket" ? "secondary" : "ghost"}
-            onClick={() => {
-              setTool((t) => (t === "bracket" ? "select" : "bracket"));
-              setBracketStart(null);
-              setBracketCursor(null);
-              setArrowSource(null);
-            }}
-          >
-            <Braces className="size-3.5" />
-            Brace
-          </Button>
-          <span className="mx-1 h-4 w-px bg-zinc-800" />
-          <EdgeStyleButton current={edgeStyle} value="smoothstep" onClick={setEdgeStyle} icon={Workflow} label="Elbow" />
-          <EdgeStyleButton current={edgeStyle} value="default" onClick={setEdgeStyle} icon={Spline} label="Curve" />
-          <EdgeStyleButton current={edgeStyle} value="straight" onClick={setEdgeStyle} icon={Slash} label="Straight" />
-        </Panel>
-        <Panel position="top-right" className="m-0">
-          <Button
-            size="default"
-            onClick={() => setAddLogsOpen(true)}
-            className="h-9 gap-1.5 rounded-md border border-sky-300/50 bg-sky-500 px-3.5 text-[13px] font-semibold text-white shadow-lg shadow-sky-500/35 hover:bg-sky-400"
-          >
-            <Plus className="size-4" />
-            Add Log(s)
-          </Button>
+        <Panel
+          position="top-left"
+          className="pointer-events-none !m-2 flex w-[calc(100%-16px)] items-start"
+        >
+          <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/80 p-1 backdrop-blur">
+            <ToolHint />
+            <Button size="sm" variant="ghost" onClick={() => addNote(canvasId)}>
+              <StickyNote className="size-3.5" />
+              Note
+            </Button>
+            <Button
+              size="sm"
+              variant={tool === "arrow" ? "secondary" : "ghost"}
+              onClick={() => {
+                setTool((t) => (t === "arrow" ? "select" : "arrow"));
+                setArrowSource(null);
+                setBracketStart(null);
+              }}
+            >
+              <ArrowRight className="size-3.5" />
+              Arrow
+            </Button>
+            <Button
+              size="sm"
+              variant={tool === "bracket" ? "secondary" : "ghost"}
+              onClick={() => {
+                setTool((t) => (t === "bracket" ? "select" : "bracket"));
+                setBracketStart(null);
+                setBracketCursor(null);
+                setArrowSource(null);
+              }}
+            >
+              <Braces className="size-3.5" />
+              Brace
+            </Button>
+            <span className="mx-1 h-4 w-px bg-zinc-800" />
+            <EdgeStyleButton current={edgeStyle} value="smoothstep" onClick={setEdgeStyle} icon={Workflow} label="Elbow" />
+            <EdgeStyleButton current={edgeStyle} value="default" onClick={setEdgeStyle} icon={Spline} label="Curve" />
+            <EdgeStyleButton current={edgeStyle} value="straight" onClick={setEdgeStyle} icon={Slash} label="Straight" />
+          </div>
+          <div className="relative min-h-9 min-w-0 flex-1">
+            <Button
+              size="default"
+              onClick={() => setAddLogsOpen(true)}
+              className="pointer-events-auto absolute top-0 left-2/3 h-9 -translate-x-1/2 gap-1.5 rounded-md border border-sky-800 bg-sky-700 px-3.5 text-[13px] font-semibold text-white shadow-none hover:bg-sky-600"
+            >
+              <Plus className="size-4" />
+              Add Log(s)
+            </Button>
+          </div>
         </Panel>
         {tool === "arrow" ? (
           <Panel position="top-center">
@@ -322,7 +327,7 @@ function CanvasInner({ canvasId }: Props) {
         {canvas.nodes.length === 0 && tool === "select" ? (
           <Panel position="top-center">
             <div className="mt-16 max-w-md rounded-lg border border-zinc-800 bg-zinc-950/85 px-4 py-3 text-center text-sm text-zinc-300 shadow-xl">
-              Empty canvas. Use + Add Log(s) in the top-right, or place logs from the browser. Drag a box to
+              Empty canvas. Use + Add Log(s), or place logs from the browser. Drag a box to
               multi-select, middle-click to pan, Ctrl+wheel to zoom. Click Arrow, then two cards, to
               connect them. Brace labels a span with two clicks.
             </div>
