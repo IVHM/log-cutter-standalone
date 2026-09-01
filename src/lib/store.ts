@@ -64,6 +64,11 @@ type Store = {
     origin?: { x: number; y: number },
   ) => void;
   addNote: (canvasId: string, position?: { x: number; y: number }, color?: string) => void;
+  addBracket: (
+    canvasId: string,
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ) => void;
   updateNodeData: (canvasId: string, nodeId: string, data: Partial<AppNodeData>) => void;
   connectEdge: (canvasId: string, connection: EdgeConnection) => void;
   updateEdge: (canvasId: string, edgeId: string, patch: Partial<AppEdge>) => void;
@@ -450,9 +455,25 @@ export const useProjectStore = create<Store>((set, get) => ({
       data: {
         kind: "note",
         text: "",
-        color: color ?? NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)],
+        color: color ?? NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)].hex,
       },
       style: { width: 220, height: 160 },
+    };
+    patchProject(set, get, (p) =>
+      mapCanvas(p, canvasId, (c) => ({ ...c, nodes: [...c.nodes, node] })),
+    );
+  },
+
+  addBracket: (canvasId, start, end) => {
+    const top = Math.min(start.y, end.y);
+    const height = Math.max(80, Math.abs(end.y - start.y));
+    const x = Math.min(start.x, end.x);
+    const node: AppNode = {
+      id: nanoid(),
+      type: "bracket",
+      position: { x, y: top },
+      style: { width: 120, height },
+      data: { kind: "bracket", label: "" },
     };
     patchProject(set, get, (p) =>
       mapCanvas(p, canvasId, (c) => ({ ...c, nodes: [...c.nodes, node] })),

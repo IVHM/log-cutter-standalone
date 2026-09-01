@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ImportProjectControl } from "@/components/project/ImportProjectControl";
 import { useProjectStore } from "@/lib/store";
 
 export function SettingsView() {
@@ -110,6 +111,7 @@ export function SettingsView() {
         <Button variant="outline" onClick={exportProject}>
           Export project file
         </Button>
+        <ImportProjectControl />
         <Button
           variant="destructive"
           onClick={() => {

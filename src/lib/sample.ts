@@ -2,7 +2,7 @@ import { nanoid } from "nanoid";
 import { hashPayload, shapeIdOf } from "./hash";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import type { AppEdge, AppNode, BrowserView, Canvas, LogRecord, LogSet, Project } from "./types";
-import { DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_NOTE_COLOR, DEFAULT_SETTINGS } from "./types";
 
 const SAMPLE_LOGS: unknown[] = [
   {
@@ -197,7 +197,7 @@ export async function buildSampleProject(): Promise<Project> {
     style: { width: 260, height: 140 },
     data: {
       kind: "note",
-      color: "#f5d76e",
+      color: DEFAULT_NOTE_COLOR,
       text: "Checkout POST timed out waiting on billing. Same request_id on the API error, the Stripe timeout, and the retry.",
     },
   };

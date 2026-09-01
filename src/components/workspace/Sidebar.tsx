@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ImportProjectControl } from "@/components/project/ImportProjectControl";
 import { useProjectStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +82,7 @@ export function Sidebar() {
             <DropdownMenuItem onClick={() => void loadSample()}>
               Load sample investigation
             </DropdownMenuItem>
+            <ImportProjectControl mode="menuitem" />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

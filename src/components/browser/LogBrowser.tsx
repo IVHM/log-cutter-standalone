@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { JsonTree } from "@/components/json/JsonTree";
+import { PlaceOnCanvasDialog } from "@/components/canvas/PlaceOnCanvasDialog";
 import { formatScalar, getAtPath } from "@/lib/json-path";
 import { inferSchema, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
@@ -26,12 +27,12 @@ export function LogBrowser({ viewId }: Props) {
   const project = useProjectStore((s) => s.project);
   const updateView = useProjectStore((s) => s.updateView);
   const removeLogs = useProjectStore((s) => s.removeLogs);
-  const addLogsToCanvas = useProjectStore((s) => s.addLogsToCanvas);
-  const createCanvas = useProjectStore((s) => s.createCanvas);
   const setImportOpen = useProjectStore((s) => s.setImportOpen);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [pinDraft, setPinDraft] = useState<string[]>([]);
+  const [placeOpen, setPlaceOpen] = useState(false);
+  const [placeIds, setPlaceIds] = useState<string[]>([]);
 
   const view = project?.views.find((v) => v.id === viewId);
 
@@ -88,23 +89,19 @@ export function LogBrowser({ viewId }: Props) {
   const columns = view.columns;
   const allSelected = sorted.length > 0 && sorted.every((l) => selected.has(l.id));
   const preview = previewId ? project.logs.find((l) => l.id === previewId) : null;
-  const targetCanvas = project.lastCanvasId ?? project.canvases[0]?.id;
 
   function toggleColumn(path: string) {
     const next = columns.includes(path) ? columns.filter((c) => c !== path) : [...columns, path];
     updateView(viewId, { columns: next });
   }
 
-  function placeOnCanvas() {
-    const ids = [...selected];
+  function requestPlace(ids: string[]) {
     if (ids.length === 0) {
       toast.message("Select one or more rows first.");
       return;
     }
-    const canvasId = targetCanvas ?? createCanvas("Investigation");
-    addLogsToCanvas(canvasId, ids);
-    useProjectStore.getState().openItem({ type: "canvas", id: canvasId });
-    toast.success(`Placed ${ids.length} log${ids.length === 1 ? "" : "s"} on the canvas.`);
+    setPlaceIds(ids);
+    setPlaceOpen(true);
   }
 
   return (
@@ -179,7 +176,7 @@ export function LogBrowser({ viewId }: Props) {
             <Plus className="size-3.5" />
             Import
           </Button>
-          <Button size="sm" onClick={placeOnCanvas} disabled={selected.size === 0}>
+          <Button size="sm" onClick={() => requestPlace([...selected])} disabled={selected.size === 0}>
             <LayoutDashboard className="size-3.5" />
             Place on canvas
           </Button>
@@ -326,17 +323,14 @@ export function LogBrowser({ viewId }: Props) {
             <Button
               size="sm"
               className="w-full"
-              onClick={() => {
-                const canvasId = targetCanvas ?? createCanvas("Investigation");
-                addLogsToCanvas(canvasId, [preview.id]);
-                useProjectStore.getState().openItem({ type: "canvas", id: canvasId });
-              }}
+              onClick={() => requestPlace([preview.id])}
             >
               Place this log on canvas
             </Button>
           </div>
         </aside>
       ) : null}
+      <PlaceOnCanvasDialog open={placeOpen} onOpenChange={setPlaceOpen} logIds={placeIds} />
     </div>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { type NodeProps } from "@xyflow/react";
 import { ChevronDown, ChevronRight, Hash } from "lucide-react";
 import { JsonTree } from "@/components/json/JsonTree";
 import { jsonType } from "@/lib/hash";
 import { formatScalar, getAtPath } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
 import type { LogNodeData } from "@/lib/types";
+import { NodeConnectHandles } from "./NodeConnectHandles";
 import { cn } from "@/lib/utils";
 import { useCanvasId } from "./canvas-context";
 
@@ -49,10 +50,7 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
         selected ? "border-sky-400 ring-2 ring-sky-400/30" : "border-zinc-700",
       )}
     >
-      <Handle type="target" position={Position.Left} id="l" className="!size-2 !bg-zinc-400" />
-      <Handle type="target" position={Position.Top} id="t" className="!size-2 !bg-zinc-400" />
-      <Handle type="source" position={Position.Right} id="r" className="!size-2 !bg-zinc-400" />
-      <Handle type="source" position={Position.Bottom} id="b" className="!size-2 !bg-zinc-400" />
+      <NodeConnectHandles />
 
       <div className="flex items-center gap-1.5 border-b border-zinc-800 px-2 py-1.5">
         <button

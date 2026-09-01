@@ -5,6 +5,7 @@ import {
   applyNodeChanges,
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   MiniMap,
   Panel,
@@ -17,13 +18,23 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { MarkerType } from "@xyflow/react";
-import { MousePointer2, StickyNote, Spline, Slash, Workflow } from "lucide-react";
+import {
+  ArrowRight,
+  Braces,
+  MousePointer2,
+  Plus,
+  Slash,
+  Spline,
+  StickyNote,
+  Workflow,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { AddLogsDialog } from "@/components/canvas/AddLogsDialog";
 import { Button } from "@/components/ui/button";
 import { useProjectStore } from "@/lib/store";
 import type { AppEdge, AppNode } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { BracketNode } from "./BracketNode";
 import { CanvasIdContext } from "./canvas-context";
 import { LabeledEdge } from "./LabeledEdge";
 import { LogNode } from "./LogNode";
@@ -31,13 +42,15 @@ import { NoteNode } from "./NoteNode";
 
 import "@xyflow/react/dist/style.css";
 
-const nodeTypes = { log: LogNode, note: NoteNode };
+const nodeTypes = { log: LogNode, note: NoteNode, bracket: BracketNode };
 const edgeTypes = {
   default: LabeledEdge,
   smoothstep: LabeledEdge,
   straight: LabeledEdge,
   bezier: LabeledEdge,
 };
+
+type Tool = "select" | "arrow" | "bracket";
 
 type Props = { canvasId: string };
 
@@ -54,34 +67,30 @@ export function CanvasView({ canvasId }: Props) {
 function CanvasInner({ canvasId }: Props) {
   const canvas = useProjectStore((s) => s.project?.canvases.find((c) => c.id === canvasId));
   const settings = useProjectStore((s) => s.project?.settings);
-  const logs = useProjectStore((s) => s.project?.logs ?? []);
   const setCanvasNodes = useProjectStore((s) => s.setCanvasNodes);
   const setCanvasEdges = useProjectStore((s) => s.setCanvasEdges);
   const setViewport = useProjectStore((s) => s.setViewport);
   const connectEdge = useProjectStore((s) => s.connectEdge);
   const addNote = useProjectStore((s) => s.addNote);
-  const addLogsToCanvas = useProjectStore((s) => s.addLogsToCanvas);
+  const addBracket = useProjectStore((s) => s.addBracket);
   const updateEdge = useProjectStore((s) => s.updateEdge);
   const { screenToFlowPosition } = useReactFlow();
-  const [spaceDown, setSpaceDown] = useState(false);
   const [edgeStyle, setEdgeStyle] = useState<"smoothstep" | "default" | "straight">("smoothstep");
+  const [tool, setTool] = useState<Tool>("select");
+  const [arrowSource, setArrowSource] = useState<string | null>(null);
+  const [bracketStart, setBracketStart] = useState<{ x: number; y: number } | null>(null);
+  const [addLogsOpen, setAddLogsOpen] = useState(false);
 
   useEffect(() => {
-    function down(e: KeyboardEvent) {
-      if (e.code === "Space" && !isTyping(e)) {
-        e.preventDefault();
-        setSpaceDown(true);
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setTool("select");
+        setArrowSource(null);
+        setBracketStart(null);
       }
     }
-    function up(e: KeyboardEvent) {
-      if (e.code === "Space") setSpaceDown(false);
-    }
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const onNodesChange = useCallback(
@@ -134,8 +143,10 @@ function CanvasInner({ canvasId }: Props) {
     );
   }
 
+  const placing = tool !== "select";
+
   return (
-    <div className={cn("h-full w-full", spaceDown && "cursor-grab")}>
+    <div className="h-full w-full">
       <ReactFlow
         nodes={canvas.nodes}
         edges={canvas.edges}
@@ -144,15 +155,19 @@ function CanvasInner({ canvasId }: Props) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        connectionMode={ConnectionMode.Loose}
         defaultEdgeOptions={defaultEdgeOptions}
         defaultViewport={canvas.viewport}
         onMoveEnd={(_, vp) => setViewport(canvasId, vp)}
         fitView={canvas.nodes.length > 0 && canvas.viewport.x === 0 && canvas.viewport.y === 0 && canvas.viewport.zoom === 1}
-        selectionOnDrag={!spaceDown}
-        panOnDrag={spaceDown ? true : [1, 2]}
-        panOnScroll
+        selectionOnDrag={!placing}
+        panOnDrag={[1, 2]}
+        panOnScroll={false}
+        zoomOnScroll
+        zoomActivationKeyCode="Control"
         selectionMode={SelectionMode.Partial}
-        selectNodesOnDrag
+        selectNodesOnDrag={!placing}
+        nodesDraggable={tool !== "arrow"}
         multiSelectionKeyCode="Shift"
         deleteKeyCode={["Backspace", "Delete"]}
         snapToGrid={settings?.snapToGrid}
@@ -162,11 +177,43 @@ function CanvasInner({ canvasId }: Props) {
         colorMode="dark"
         proOptions={{ hideAttribution: true }}
         onPaneContextMenu={(e) => e.preventDefault()}
-        onPaneClick={(e) => {
-          if (e.detail === 2) {
-            const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-            addNote(canvasId, pos);
+        onNodeClick={(_, node) => {
+          if (tool !== "arrow") return;
+          if (!arrowSource) {
+            setArrowSource(node.id);
+            toast.message("Click another log or note to finish the arrow.");
+            return;
           }
+          if (arrowSource === node.id) return;
+          connectEdge(canvasId, { source: arrowSource, target: node.id });
+          const last = useProjectStore
+            .getState()
+            .project?.canvases.find((x) => x.id === canvasId)
+            ?.edges.at(-1);
+          if (last) {
+            updateEdge(canvasId, last.id, {
+              type: edgeStyle,
+              markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+            });
+          }
+          setArrowSource(null);
+          setTool("select");
+        }}
+        onPaneClick={(e) => {
+          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          if (tool === "bracket") {
+            if (!bracketStart) {
+              setBracketStart(pos);
+              toast.message("Click the other end of the brace.");
+              return;
+            }
+            addBracket(canvasId, bracketStart, pos);
+            setBracketStart(null);
+            setTool("select");
+            return;
+          }
+          if (tool === "arrow") return;
+          if (e.detail === 2) addNote(canvasId, pos);
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#3f3f46" />
@@ -176,7 +223,9 @@ function CanvasInner({ canvasId }: Props) {
             pannable
             zoomable
             maskColor="rgba(0,0,0,0.55)"
-            nodeColor={(n) => (n.type === "note" ? "#f5d76e" : "#38bdf8")}
+            nodeColor={(n) =>
+              n.type === "note" ? "#fde68a" : n.type === "bracket" ? "#7dd3fc" : "#38bdf8"
+            }
           />
         ) : null}
         <Panel position="top-left" className="flex flex-wrap items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/80 p-1 backdrop-blur">
@@ -185,34 +234,64 @@ function CanvasInner({ canvasId }: Props) {
             <StickyNote className="size-3.5" />
             Note
           </Button>
+          <Button size="sm" variant="ghost" onClick={() => setAddLogsOpen(true)}>
+            <Plus className="size-3.5" />
+            Add log(s) to canvas
+          </Button>
           <Button
             size="sm"
-            variant="ghost"
+            variant={tool === "arrow" ? "secondary" : "ghost"}
             onClick={() => {
-              if (logs.length === 0) {
-                toast.message("Import logs first, then place them from the browser.");
-                return;
-              }
-              addLogsToCanvas(canvasId, logs.slice(0, 6).map((l) => l.id));
+              setTool((t) => (t === "arrow" ? "select" : "arrow"));
+              setArrowSource(null);
+              setBracketStart(null);
             }}
           >
-            Place sample of dataset
+            <ArrowRight className="size-3.5" />
+            Arrow
+          </Button>
+          <Button
+            size="sm"
+            variant={tool === "bracket" ? "secondary" : "ghost"}
+            onClick={() => {
+              setTool((t) => (t === "bracket" ? "select" : "bracket"));
+              setBracketStart(null);
+              setArrowSource(null);
+            }}
+          >
+            <Braces className="size-3.5" />
+            Brace
           </Button>
           <span className="mx-1 h-4 w-px bg-zinc-800" />
           <EdgeStyleButton current={edgeStyle} value="smoothstep" onClick={setEdgeStyle} icon={Workflow} label="Elbow" />
           <EdgeStyleButton current={edgeStyle} value="default" onClick={setEdgeStyle} icon={Spline} label="Curve" />
           <EdgeStyleButton current={edgeStyle} value="straight" onClick={setEdgeStyle} icon={Slash} label="Straight" />
         </Panel>
-        {canvas.nodes.length === 0 ? (
+        {tool === "arrow" ? (
+          <Panel position="top-center">
+            <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
+              {arrowSource ? "Click the destination card." : "Click the first card, then the second."} Esc to cancel.
+            </div>
+          </Panel>
+        ) : null}
+        {tool === "bracket" ? (
+          <Panel position="top-center">
+            <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
+              {bracketStart ? "Click the other end of the brace." : "Click where the brace should start, then the other end."} Esc to cancel.
+            </div>
+          </Panel>
+        ) : null}
+        {canvas.nodes.length === 0 && tool === "select" ? (
           <Panel position="top-center">
             <div className="mt-16 max-w-md rounded-lg border border-zinc-800 bg-zinc-950/85 px-4 py-3 text-center text-sm text-zinc-300 shadow-xl">
-              Empty canvas. Open the log browser, select rows, and place them here. Drag a box to
-              multi-select, middle-click or hold Space to pan, double-click to drop a note. Drag
-              from a handle to draw an arrow.
+              Empty canvas. Add logs from the toolbar, or place them from the browser. Drag a box to
+              multi-select, middle-click to pan, Ctrl+wheel to zoom. Click Arrow, then two cards, to
+              connect them. Brace labels a span with two clicks.
             </div>
           </Panel>
         ) : null}
       </ReactFlow>
+      <AddLogsDialog open={addLogsOpen} onOpenChange={setAddLogsOpen} canvasId={canvasId} />
     </div>
   );
 }
@@ -221,7 +300,7 @@ function ToolHint() {
   return (
     <span className="hidden items-center gap-1 px-2 text-[11px] text-zinc-500 md:flex">
       <MousePointer2 className="size-3" />
-      Drag-select · Space pan · Wheel zoom
+      Drag-select · Ctrl+wheel zoom
     </span>
   );
 }
@@ -250,11 +329,4 @@ function EdgeStyleButton({
       {label}
     </Button>
   );
-}
-
-function isTyping(e: KeyboardEvent) {
-  const t = e.target as HTMLElement | null;
-  if (!t) return false;
-  const tag = t.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable;
 }

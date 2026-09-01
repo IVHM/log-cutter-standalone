@@ -73,8 +73,13 @@ export type NoteNodeData = {
   color: string;
 };
 
-export type AppNodeData = LogNodeData | NoteNodeData;
-export type AppNode = Node<AppNodeData, "log" | "note">;
+export type BracketNodeData = {
+  kind: "bracket";
+  label: string;
+};
+
+export type AppNodeData = LogNodeData | NoteNodeData | BracketNodeData;
+export type AppNode = Node<AppNodeData, "log" | "note" | "bracket">;
 export type AppEdge = Edge<{ label?: string }>;
 
 export type Canvas = {
@@ -128,10 +133,12 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
 };
 
 export const NOTE_COLORS = [
-  "#f5d76e",
-  "#f5a6c8",
-  "#8ecae6",
-  "#b8e994",
-  "#e2c2ff",
-  "#ffd6a5",
+  { name: "Yellow", hex: "#fde68a" },
+  { name: "Light blue", hex: "#bfdbfe" },
+  { name: "Light green", hex: "#bbf7d0" },
+  { name: "Light purple", hex: "#e9d5ff" },
+  { name: "Light orange", hex: "#fed7aa" },
+  { name: "Light pink", hex: "#fbcfe8" },
 ] as const;
+
+export const DEFAULT_NOTE_COLOR = NOTE_COLORS[0].hex;
