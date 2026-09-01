@@ -30,6 +30,7 @@ export function LabeledEdge({
   const updateEdge = useProjectStore((s) => s.updateEdge);
   const [editing, setEditing] = useState(false);
   const label = (data as { label?: string } | undefined)?.label ?? "";
+  const showLabel = Boolean(label) || selected || editing;
 
   const pathFn = type === "straight" ? getStraightPath : type === "default" ? getBezierPath : getSmoothStepPath;
   const [edgePath, labelX, labelY] = pathFn({
@@ -47,44 +48,55 @@ export function LabeledEdge({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
+        interactionWidth={36}
         style={{
           ...style,
           stroke: selected ? "#7dd3fc" : "#a1a1aa",
-          strokeWidth: selected ? 2.4 : 1.6,
+          strokeWidth: selected ? 2.6 : 1.75,
         }}
       />
-      <EdgeLabelRenderer>
-        <div
-          className="nodrag nopan pointer-events-auto absolute origin-center"
-          style={{
-            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-          }}
-        >
-          {editing ? (
-            <input
-              autoFocus
-              className="rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-100 outline-none"
-              defaultValue={label}
-              onBlur={(e) => {
-                updateEdge(canvasId, id, { data: { label: e.target.value } });
-                setEditing(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                if (e.key === "Escape") setEditing(false);
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="rounded bg-zinc-900/90 px-1.5 py-0.5 text-[11px] text-zinc-200 shadow"
-            >
-              {label || (selected ? "Add label" : "·")}
-            </button>
-          )}
-        </div>
-      </EdgeLabelRenderer>
+      {/* Transparent stroke so the line itself is the click target, not only a label. */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={36}
+        className="react-flow__edge-interaction"
+      />
+      {showLabel ? (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-auto absolute origin-center"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+          >
+            {editing ? (
+              <input
+                autoFocus
+                className="rounded border border-zinc-600 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-100 outline-none"
+                defaultValue={label}
+                onBlur={(e) => {
+                  updateEdge(canvasId, id, { data: { label: e.target.value } });
+                  setEditing(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") setEditing(false);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="rounded bg-zinc-900/90 px-1.5 py-0.5 text-[11px] text-zinc-200 shadow"
+              >
+                {label || "Add label"}
+              </button>
+            )}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   );
 }

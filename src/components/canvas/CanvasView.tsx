@@ -33,10 +33,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AddLogsDialog } from "@/components/canvas/AddLogsDialog";
 import { Button } from "@/components/ui/button";
+import { handleFlowPosition, nearestHandle, type EdgeHandleId } from "@/lib/arrow-anchor";
 import { useProjectStore } from "@/lib/store";
 import type { AppEdge, AppNode } from "@/lib/types";
 import { BracketNode } from "./BracketNode";
-import { CanvasIdContext } from "./canvas-context";
+import { CanvasArrowContext, CanvasIdContext, type CanvasTool } from "./canvas-context";
 import { LabeledEdge } from "./LabeledEdge";
 import { LogNode } from "./LogNode";
 import { NoteNode } from "./NoteNode";
@@ -51,7 +52,7 @@ const edgeTypes = {
   bezier: LabeledEdge,
 };
 
-type Tool = "select" | "arrow" | "bracket";
+type EdgeStyle = "smoothstep" | "default" | "straight";
 
 type Props = { canvasId: string };
 
@@ -76,9 +77,10 @@ function CanvasInner({ canvasId }: Props) {
   const addBracket = useProjectStore((s) => s.addBracket);
   const updateEdge = useProjectStore((s) => s.updateEdge);
   const { screenToFlowPosition } = useReactFlow();
-  const [edgeStyle, setEdgeStyle] = useState<"smoothstep" | "default" | "straight">("smoothstep");
-  const [tool, setTool] = useState<Tool>("select");
-  const [arrowSource, setArrowSource] = useState<string | null>(null);
+  const [edgeStyle, setEdgeStyle] = useState<EdgeStyle>("smoothstep");
+  const [tool, setTool] = useState<CanvasTool>("select");
+  const [arrowStart, setArrowStart] = useState<{ nodeId: string; handle: EdgeHandleId } | null>(null);
+  const [arrowCursor, setArrowCursor] = useState<{ x: number; y: number } | null>(null);
   const [bracketStart, setBracketStart] = useState<{ x: number; y: number } | null>(null);
   const [bracketCursor, setBracketCursor] = useState<{ x: number; y: number } | null>(null);
   const [addLogsOpen, setAddLogsOpen] = useState(false);
@@ -87,7 +89,8 @@ function CanvasInner({ canvasId }: Props) {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setTool("select");
-        setArrowSource(null);
+        setArrowStart(null);
+        setArrowCursor(null);
         setBracketStart(null);
         setBracketCursor(null);
       }
@@ -138,6 +141,64 @@ function CanvasInner({ canvasId }: Props) {
     [edgeStyle],
   );
 
+  const finishArrow = useCallback(
+    (source: { nodeId: string; handle: EdgeHandleId }, target: { nodeId: string; handle: EdgeHandleId }) => {
+      if (source.nodeId === target.nodeId && source.handle === target.handle) return;
+      connectEdge(canvasId, {
+        source: source.nodeId,
+        target: target.nodeId,
+        sourceHandle: source.handle,
+        targetHandle: target.handle,
+      });
+      const last = useProjectStore
+        .getState()
+        .project?.canvases.find((x) => x.id === canvasId)
+        ?.edges.at(-1);
+      if (last) {
+        updateEdge(canvasId, last.id, {
+          type: edgeStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+        });
+      }
+      setArrowStart(null);
+      setArrowCursor(null);
+      setTool("select");
+    },
+    [canvasId, connectEdge, edgeStyle, updateEdge],
+  );
+
+  const onAnchorClick = useCallback(
+    (nodeId: string, handle: EdgeHandleId) => {
+      if (tool !== "arrow") return;
+      if (!arrowStart) {
+        setArrowStart({ nodeId, handle });
+        toast.message("Click an anchor on the destination card.");
+        return;
+      }
+      finishArrow(arrowStart, { nodeId, handle });
+    },
+    [arrowStart, finishArrow, tool],
+  );
+
+  const applyEdgeStyle = useCallback(
+    (style: EdgeStyle) => {
+      setEdgeStyle(style);
+      const current = useProjectStore.getState().project?.canvases.find((c) => c.id === canvasId);
+      if (!current) return;
+      for (const edge of current.edges) {
+        if (edge.selected) updateEdge(canvasId, edge.id, { type: style });
+      }
+    },
+    [canvasId, updateEdge],
+  );
+
+  const selectedEdge = canvas?.edges.find((e) => e.selected);
+  useEffect(() => {
+    if (!selectedEdge) return;
+    const next = normalizeEdgeStyle(selectedEdge.type);
+    if (next) setEdgeStyle(next);
+  }, [selectedEdge?.id, selectedEdge?.type]);
+
   if (!canvas) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -147,8 +208,14 @@ function CanvasInner({ canvasId }: Props) {
   }
 
   const placing = tool !== "select";
+  const arrowStartNode = arrowStart
+    ? canvas.nodes.find((n) => n.id === arrowStart.nodeId)
+    : undefined;
+  const arrowStartPos =
+    arrowStart && arrowStartNode ? handleFlowPosition(arrowStartNode, arrowStart.handle) : null;
 
   return (
+    <CanvasArrowContext.Provider value={{ tool, onAnchorClick }}>
     <div className="h-full w-full">
       <ReactFlow
         nodes={canvas.nodes}
@@ -159,6 +226,13 @@ function CanvasInner({ canvasId }: Props) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         connectionMode={ConnectionMode.Loose}
+        nodesConnectable={tool === "arrow"}
+        elementsSelectable
+        connectionLineStyle={{
+          stroke: "#7dd3fc",
+          strokeWidth: 1.75,
+          strokeDasharray: "7 5",
+        }}
         defaultEdgeOptions={defaultEdgeOptions}
         defaultViewport={canvas.viewport}
         onMoveEnd={(_, vp) => setViewport(canvasId, vp)}
@@ -181,30 +255,22 @@ function CanvasInner({ canvasId }: Props) {
         proOptions={{ hideAttribution: true }}
         onPaneContextMenu={(e) => e.preventDefault()}
         onPointerMove={(e) => {
-          if (tool !== "bracket" || !bracketStart) return;
-          setBracketCursor(screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          if (tool === "bracket" && bracketStart) setBracketCursor(pos);
+          if (tool === "arrow" && arrowStart) setArrowCursor(pos);
         }}
-        onNodeClick={(_, node) => {
+        onNodeClick={(e, node) => {
           if (tool !== "arrow") return;
-          if (!arrowSource) {
-            setArrowSource(node.id);
-            toast.message("Click another log or note to finish the arrow.");
-            return;
+          if (node.type === "bracket") return;
+          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          onAnchorClick(node.id, nearestHandle(node, pos));
+        }}
+        onEdgeClick={() => {
+          if (tool === "arrow") {
+            setArrowStart(null);
+            setArrowCursor(null);
+            setTool("select");
           }
-          if (arrowSource === node.id) return;
-          connectEdge(canvasId, { source: arrowSource, target: node.id });
-          const last = useProjectStore
-            .getState()
-            .project?.canvases.find((x) => x.id === canvasId)
-            ?.edges.at(-1);
-          if (last) {
-            updateEdge(canvasId, last.id, {
-              type: edgeStyle,
-              markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            });
-          }
-          setArrowSource(null);
-          setTool("select");
         }}
         onPaneClick={(e) => {
           const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
@@ -227,6 +293,27 @@ function CanvasInner({ canvasId }: Props) {
         }}
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#3f3f46" />
+        {tool === "arrow" && arrowStartPos && arrowCursor ? (
+          <ViewportPortal>
+            <svg
+              className="pointer-events-none absolute overflow-visible"
+              style={{ left: 0, top: 0, width: 1, height: 1 }}
+              aria-hidden
+            >
+              <line
+                x1={arrowStartPos.x}
+                y1={arrowStartPos.y}
+                x2={arrowCursor.x}
+                y2={arrowCursor.y}
+                stroke="#7dd3fc"
+                strokeWidth={1.75}
+                strokeDasharray="7 5"
+                strokeLinecap="round"
+              />
+              <circle cx={arrowStartPos.x} cy={arrowStartPos.y} r={3.5} fill="#7dd3fc" />
+            </svg>
+          </ViewportPortal>
+        ) : null}
         {tool === "bracket" && bracketStart && bracketCursor ? (
           <ViewportPortal>
             <svg
@@ -274,7 +361,8 @@ function CanvasInner({ canvasId }: Props) {
               variant={tool === "arrow" ? "secondary" : "ghost"}
               onClick={() => {
                 setTool((t) => (t === "arrow" ? "select" : "arrow"));
-                setArrowSource(null);
+                setArrowStart(null);
+                setArrowCursor(null);
                 setBracketStart(null);
               }}
             >
@@ -288,16 +376,17 @@ function CanvasInner({ canvasId }: Props) {
                 setTool((t) => (t === "bracket" ? "select" : "bracket"));
                 setBracketStart(null);
                 setBracketCursor(null);
-                setArrowSource(null);
+                setArrowStart(null);
+                setArrowCursor(null);
               }}
             >
               <Braces className="size-3.5" />
               Brace
             </Button>
             <span className="mx-1 h-4 w-px bg-zinc-800" />
-            <EdgeStyleButton current={edgeStyle} value="smoothstep" onClick={setEdgeStyle} icon={Workflow} label="Elbow" />
-            <EdgeStyleButton current={edgeStyle} value="default" onClick={setEdgeStyle} icon={Spline} label="Curve" />
-            <EdgeStyleButton current={edgeStyle} value="straight" onClick={setEdgeStyle} icon={Slash} label="Straight" />
+            <EdgeStyleButton current={edgeStyle} value="smoothstep" onClick={applyEdgeStyle} icon={Workflow} label="Elbow" />
+            <EdgeStyleButton current={edgeStyle} value="default" onClick={applyEdgeStyle} icon={Spline} label="Curve" />
+            <EdgeStyleButton current={edgeStyle} value="straight" onClick={applyEdgeStyle} icon={Slash} label="Straight" />
           </div>
           <div className="relative min-h-9 min-w-0 flex-1">
             <Button
@@ -313,7 +402,7 @@ function CanvasInner({ canvasId }: Props) {
         {tool === "arrow" ? (
           <Panel position="top-center">
             <div className="rounded-md border border-sky-800 bg-zinc-950/90 px-3 py-1.5 text-[12px] text-sky-200">
-              {arrowSource ? "Click the destination card." : "Click the first card, then the second."} Esc to cancel.
+              {arrowStart ? "Click an anchor on the destination card." : "Click a side anchor, then the other end."} Esc to cancel.
             </div>
           </Panel>
         ) : null}
@@ -328,15 +417,22 @@ function CanvasInner({ canvasId }: Props) {
           <Panel position="top-center">
             <div className="mt-16 max-w-md rounded-lg border border-zinc-800 bg-zinc-950/85 px-4 py-3 text-center text-sm text-zinc-300 shadow-xl">
               Empty canvas. Use + Add Log(s), or place logs from the browser. Drag a box to
-              multi-select, middle-click to pan, Ctrl+wheel to zoom. Click Arrow, then two cards, to
-              connect them. Brace labels a span with two clicks.
+              multi-select, middle-click to pan, Ctrl+wheel to zoom. Click Arrow, then two side
+              anchors, to connect them. Click an arrow’s line to change Elbow, Curve, or Straight.
             </div>
           </Panel>
         ) : null}
       </ReactFlow>
       <AddLogsDialog open={addLogsOpen} onOpenChange={setAddLogsOpen} canvasId={canvasId} />
     </div>
+    </CanvasArrowContext.Provider>
   );
+}
+
+function normalizeEdgeStyle(type: string | undefined): EdgeStyle | null {
+  if (type === "smoothstep" || type === "default" || type === "straight") return type;
+  if (type === "bezier") return "default";
+  return null;
 }
 
 function ToolHint() {

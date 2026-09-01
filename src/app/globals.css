@@ -140,3 +140,15 @@
 .react-flow__attribution {
   display: none;
 }
+
+/* Invisible helper stroke is opacity 0; visibleStroke would miss clicks on the line. */
+.react-flow__edge .react-flow__edge-interaction {
+  pointer-events: stroke;
+  stroke: transparent;
+  stroke-opacity: 1;
+  cursor: pointer;
+}
+
+.react-flow__edge.selectable {
+  cursor: pointer;
+}
