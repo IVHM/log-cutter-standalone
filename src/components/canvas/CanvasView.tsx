@@ -303,7 +303,7 @@ function CanvasInner({ canvasId }: Props) {
             <Button
               size="default"
               onClick={() => setAddLogsOpen(true)}
-              className="pointer-events-auto absolute top-0 left-2/3 h-9 -translate-x-1/2 gap-1.5 rounded-md border border-sky-800 bg-sky-700 px-3.5 text-[13px] font-semibold text-white shadow-none hover:bg-sky-600"
+              className="pointer-events-auto absolute top-0 left-1/2 h-9 -translate-x-1/2 gap-1.5 rounded-md border border-sky-800 bg-sky-700 px-3.5 text-[13px] font-semibold text-white shadow-none hover:bg-sky-600"
             >
               <Plus className="size-4" />
               Add Log(s)
