@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { ImportProjectControl } from "@/components/project/ImportProjectControl";
 import { useProjectStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { logsInView } from "@/lib/views";
 
 export function Sidebar() {
   const project = useProjectStore((s) => s.project);
@@ -143,7 +144,7 @@ export function Sidebar() {
               icon={<Database className="size-3.5" />}
               label={v.name}
               active={activeTab?.kind === "browser" && activeTab.viewId === v.id}
-              count={v.columns.length}
+              count={logsInView(project.logs, v).length}
               onClick={() => openItem({ type: "view", id: v.id })}
               onRename={(name) => updateView(v.id, { name })}
               onDelete={() => deleteView(v.id)}
@@ -250,7 +251,9 @@ function OutlineRow({
         )}
       </button>
       {count != null && !editing ? (
-        <span className="text-[10px] tabular-nums text-zinc-600">{count}</span>
+        <span className="text-[10px] tabular-nums text-zinc-600" title={`${count} logs`}>
+          {count}
+        </span>
       ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

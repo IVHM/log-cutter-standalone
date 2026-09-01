@@ -20,6 +20,7 @@ import { formatScalar, getAtPath } from "@/lib/json-path";
 import { inferSchema, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { logsInView } from "@/lib/views";
 
 type Props = { viewId: string };
 
@@ -43,6 +44,11 @@ export function LogBrowser({ viewId }: Props) {
       : project.logs.filter((l) => l.logSetId === view.logSetId);
   }, [project, view]);
 
+  const filtered = useMemo(() => {
+    if (!project || !view) return [];
+    return logsInView(project.logs, view);
+  }, [project, view]);
+
   const schema = useMemo(() => inferSchema(scopedLogs), [scopedLogs]);
 
   const shapes = useMemo(() => {
@@ -52,17 +58,6 @@ export function LogBrowser({ viewId }: Props) {
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [scopedLogs]);
-
-  const filtered = useMemo(() => {
-    if (!view) return [];
-    const q = view.search.trim().toLowerCase();
-    return scopedLogs.filter((log) => {
-      if (view.shapeFilter && log.shapeId !== view.shapeFilter) return false;
-      if (!q) return true;
-      const blob = `${JSON.stringify(log.data)} ${JSON.stringify(log.meta)} ${log.note} ${log.hash}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }, [scopedLogs, view]);
 
   const sorted = useMemo(() => {
     if (!view?.sortBy) return filtered;
