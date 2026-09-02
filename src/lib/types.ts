@@ -50,6 +50,13 @@ export type LogSet = {
   /** Up to three JSON paths shown on canvas log card headers. */
   headerPaths: string[];
   headerColor: string;
+  /** Table columns for the unfiltered source browse. */
+  columns: string[];
+  sortBy?: { path: string; dir: "asc" | "desc" };
+  /** Applied to newly placed canvas cards only. */
+  defaultPinnedPaths: string[];
+  /** Hidden on canvas cards (collapsed + expanded body). */
+  hiddenPaths: string[];
 };
 
 export type FilterOp =
@@ -85,7 +92,7 @@ export type FilterExpr = FilterClause | FilterGroup;
 export type BrowserView = {
   id: string;
   name: string;
-  /** Exactly one log set. Canvases may mix sets; views may not. */
+  /** Exactly one source. Canvases may mix sources; views may not. */
   logSetId: string;
   columns: string[];
   sortBy?: { path: string; dir: "asc" | "desc" };
@@ -128,6 +135,7 @@ export type Canvas = {
 
 export type Tab =
   | { id: string; kind: "canvas"; canvasId: string }
+  | { id: string; kind: "source"; logSetId: string }
   | { id: string; kind: "browser"; viewId: string }
   | { id: string; kind: "settings" };
 

@@ -76,6 +76,19 @@ export function isPinnedUnder(
   );
 }
 
+/** True if this instance or schema path is hidden, or sits under a hidden ancestor. */
+export function isHiddenPath(path: string, hiddenPaths: string[]): boolean {
+  if (!path || hiddenPaths.length === 0) return false;
+  const schema = toSchemaPath(path);
+  return hiddenPaths.some((hidden) => {
+    const h = toSchemaPath(hidden);
+    if (schema === h || path === hidden) return true;
+    if (schema.startsWith(`${h}.`) || schema.startsWith(`${h}[`)) return true;
+    if (path.startsWith(`${hidden}.`) || path.startsWith(`${hidden}[`)) return true;
+    return false;
+  });
+}
+
 export function formatScalar(value: unknown, max = 80): string {
   if (value === null) return "null";
   if (value === undefined) return "undefined";

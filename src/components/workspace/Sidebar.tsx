@@ -2,9 +2,9 @@
 
 import {
   ChevronRight,
-  Database,
-  FileJson,
+  FolderClosed,
   FolderKanban,
+  Funnel,
   LayoutDashboard,
   MoreHorizontal,
   Plus,
@@ -46,6 +46,13 @@ export function Sidebar() {
   const activeTab = project?.openTabs.find((t) => t.id === activeTabId);
 
   if (!project) return null;
+
+  const viewsBySource = project.logSets
+    .map((set) => ({
+      set,
+      views: project.views.filter((v) => v.logSetId === set.id),
+    }))
+    .filter((group) => group.views.length > 0);
 
   return (
     <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
@@ -89,10 +96,7 @@ export function Sidebar() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto py-2">
-        <Section
-          title="Canvases"
-          onAdd={() => createCanvas()}
-        >
+        <Section title="Canvases" onAdd={() => createCanvas()}>
           {project.canvases.map((c) => (
             <OutlineRow
               key={c.id}
@@ -108,9 +112,9 @@ export function Sidebar() {
         </Section>
 
         <Section
-          title="Log sets"
+          title="Sources"
           onAdd={() => {
-            const name = window.prompt("Log set name", "New set");
+            const name = window.prompt("Source name", "New source");
             if (name) createLogSet(name);
           }}
         >
@@ -119,12 +123,9 @@ export function Sidebar() {
             return (
               <OutlineRow
                 key={set.id}
-                icon={<FileJson className="size-3.5" />}
+                icon={<FolderClosed className="size-3.5" />}
                 label={set.name}
-                active={
-                  activeTab?.kind === "browser" &&
-                  project.views.find((v) => v.id === activeTab.viewId)?.logSetId === set.id
-                }
+                active={activeTab?.kind === "source" && activeTab.logSetId === set.id}
                 count={count}
                 onClick={() => openItem({ type: "logSet", id: set.id })}
                 onRename={(name) => renameLogSet(set.id, name)}
@@ -135,21 +136,21 @@ export function Sidebar() {
         </Section>
 
         <Section
-          title="Browser views"
+          title="Views"
           addControl={
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
                   className="rounded p-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
-                  aria-label="Add browser view"
+                  aria-label="Add view"
                 >
                   <Plus className="size-3.5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 {project.logSets.length === 0 ? (
-                  <DropdownMenuItem disabled>Import a log set first</DropdownMenuItem>
+                  <DropdownMenuItem disabled>Import a source first</DropdownMenuItem>
                 ) : (
                   project.logSets.map((set) => (
                     <DropdownMenuItem key={set.id} onClick={() => createView(set.id)}>
@@ -161,18 +162,31 @@ export function Sidebar() {
             </DropdownMenu>
           }
         >
-          {project.views.map((v) => (
-            <OutlineRow
-              key={v.id}
-              icon={<Database className="size-3.5" />}
-              label={v.name}
-              active={activeTab?.kind === "browser" && activeTab.viewId === v.id}
-              count={logsInView(project.logs, v).length}
-              onClick={() => openItem({ type: "view", id: v.id })}
-              onRename={(name) => updateView(v.id, { name })}
-              onDelete={() => deleteView(v.id)}
-            />
-          ))}
+          {viewsBySource.length === 0 ? (
+            <p className="px-3 py-1 text-[11px] text-zinc-600">User-made filters on a source.</p>
+          ) : (
+            viewsBySource.map(({ set, views }) => (
+              <div key={set.id} className="mb-1">
+                <div className="flex items-center gap-1.5 px-3 pb-0.5 pt-1">
+                  <span className="h-3 w-0.5 shrink-0 rounded-full bg-zinc-600" aria-hidden="true" />
+                  <div className="truncate text-[11px] text-zinc-500">{set.name}</div>
+                </div>
+                {views.map((v) => (
+                  <OutlineRow
+                    key={v.id}
+                    icon={<Funnel className="size-3.5" />}
+                    label={v.name}
+                    active={activeTab?.kind === "browser" && activeTab.viewId === v.id}
+                    count={logsInView(project.logs, v).length}
+                    onClick={() => openItem({ type: "view", id: v.id })}
+                    onRename={(name) => updateView(v.id, { name })}
+                    onDelete={() => deleteView(v.id)}
+                    indented
+                  />
+                ))}
+              </div>
+            ))
+          )}
         </Section>
       </div>
 
@@ -209,7 +223,7 @@ function Section({
   return (
     <div className="mb-3">
       <div className="flex items-center px-2 pb-1">
-        <span className="flex-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+        <span className="flex-1 text-[14px] font-medium uppercase tracking-wider text-zinc-500">
           {title}
         </span>
         {addControl ?? (
@@ -236,6 +250,7 @@ function OutlineRow({
   onClick,
   onRename,
   onDelete,
+  indented,
 }: {
   icon: ReactNode;
   label: string;
@@ -244,6 +259,7 @@ function OutlineRow({
   onClick: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  indented?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
@@ -252,6 +268,7 @@ function OutlineRow({
     <div
       className={cn(
         "group mx-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px]",
+        indented && "ml-3",
         active ? "bg-zinc-800 text-zinc-50" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200",
       )}
     >

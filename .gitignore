@@ -19,6 +19,10 @@
 
 # production
 /build
+/dist
+
+# local planning notes
+/notes/
 
 # misc
 .DS_Store

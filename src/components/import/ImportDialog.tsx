@@ -152,13 +152,13 @@ export function ImportDialog() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Log set</Label>
+                <Label>Source</Label>
                 <Select value={logSetId} onValueChange={(v) => setLogSetId(v as typeof logSetId)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">Create new log set</SelectItem>
+                    <SelectItem value="new">Create new source</SelectItem>
                     {(project?.logSets ?? []).map((set) => (
                       <SelectItem key={set.id} value={set.id}>
                         {set.name}
@@ -170,7 +170,7 @@ export function ImportDialog() {
             </div>
             {logSetId === "new" ? (
               <div className="space-y-1.5">
-                <Label>New set name</Label>
+                <Label>New source name</Label>
                 <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
               </div>
             ) : null}

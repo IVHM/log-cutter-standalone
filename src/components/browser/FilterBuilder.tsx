@@ -28,7 +28,7 @@ export function FilterBuilder({ value, fields, onChange }: Props) {
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-medium text-zinc-400">View filter</p>
         <span className="truncate font-mono text-[10px] text-zinc-500" title={preview || undefined}>
-          {preview || "No clauses — this view shows the whole log set."}
+          {preview || "No clauses — this view shows the whole source."}
         </span>
       </div>
       <GroupEditor group={value} fields={fields} onChange={onChange} root />

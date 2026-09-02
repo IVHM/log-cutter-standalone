@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatScalar, getAtPath } from "@/lib/json-path";
-import { inferSchema, suggestColumns, typeLabel } from "@/lib/schema";
+import { coveragePercent, inferSchema, suggestColumns, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
 import type { LogRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -93,14 +93,14 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
           <DialogDescription>
             {setId
               ? "Choose columns, pick the records you need, then add them."
-              : "Choose a log set, then pick records to drop on this canvas."}
+              : "Choose a source, then pick records to drop on this canvas."}
           </DialogDescription>
         </DialogHeader>
 
         {!setId ? (
           <div className="space-y-2">
             {(project?.logSets ?? []).length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-500">No log sets in this project yet.</p>
+              <p className="py-8 text-center text-sm text-zinc-500">No sources in this project yet.</p>
             ) : (
               project?.logSets.map((set) => {
                 const count = project.logs.filter((l) => l.logSetId === set.id).length;
@@ -265,8 +265,8 @@ function ColumnPicker({
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-mono text-[11px] text-zinc-200">{field.path}</span>
-                  <span className="text-[10px] text-zinc-500">
-                    {typeLabel(field)} · {field.occurrences}/{logCount}
+                  <span className="text-[10px] text-zinc-500" title={`${field.occurrences}/${logCount}`}>
+                    {typeLabel(field)} · {coveragePercent(field.occurrences, logCount)}%
                   </span>
                 </span>
               </label>
