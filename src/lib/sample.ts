@@ -1,8 +1,8 @@
 import { nanoid } from "nanoid";
 import { hashPayload, shapeIdOf } from "./hash";
-import { suggestColumns, inferSchema, suggestPins } from "./schema";
+import { suggestColumns, inferSchema, suggestHeaderPaths, suggestPins } from "./schema";
 import type { AppEdge, AppNode, BrowserView, Canvas, LogRecord, LogSet, Project } from "./types";
-import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, DEFAULT_NOTE_COLOR, DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_NOTE_COLOR, DEFAULT_SETTINGS } from "./types";
 
 const SAMPLE_LOGS: unknown[] = [
   {
@@ -126,7 +126,7 @@ export async function buildSampleProject(): Promise<Project> {
     name: "checkout-incident",
     createdAt: now,
     sourceFile: "sample-logs.jsonl",
-    headerPaths: [...DEFAULT_HEADER_PATHS],
+    headerPaths: suggestHeaderPaths(SAMPLE_LOGS[0]),
     headerColor: DEFAULT_HEADER_COLOR,
     columns: [],
     defaultPinnedPaths: ["ts", "level", "event"],

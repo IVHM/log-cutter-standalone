@@ -1,5 +1,6 @@
 import { jsonType } from "./hash";
 import { joinPath, PATH_ROLLUP, toSchemaPath, tokenizePath, type PathToken } from "./json-path";
+import { DEFAULT_HEADER_PATHS } from "./types";
 import type { JsonTypeName, LogRecord, LogSet, SchemaField } from "./types";
 
 export const SCHEMA_MAX_DEPTH = 8;
@@ -219,6 +220,20 @@ export function suggestPins(data: unknown, max = 4): string[] {
   });
   const merged = [...new Set([...preferred, ...primitives])];
   return merged.slice(0, max);
+}
+
+/** Top-level JSON keys in document order — used for new-source card headers. */
+export function suggestHeaderPaths(data: unknown, max = 3): string[] {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+  return Object.keys(data as Record<string, unknown>).slice(0, max);
+}
+
+export function isPlaceholderHeaderPaths(paths: string[]): boolean {
+  if (paths.length === 0) return true;
+  return (
+    paths.length === DEFAULT_HEADER_PATHS.length &&
+    paths.every((path, i) => path === DEFAULT_HEADER_PATHS[i])
+  );
 }
 
 export function suggestColumns(fields: SchemaField[], logCount: number, max = 6): string[] {

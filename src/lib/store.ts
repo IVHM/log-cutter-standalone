@@ -19,7 +19,15 @@ import { emptyFilter } from "./filter";
 import { hashIndexFromLogs } from "./fields";
 import { toLogRecords, type ParsedRow } from "./import-parse";
 import { normalizeProject, projectNormalizedDirty } from "./normalize";
-import { inferSchema, mergeSchemaFromLogs, schemaForSource, suggestColumns, suggestPins } from "./schema";
+import {
+  inferSchema,
+  isPlaceholderHeaderPaths,
+  mergeSchemaFromLogs,
+  schemaForSource,
+  suggestColumns,
+  suggestHeaderPaths,
+  suggestPins,
+} from "./schema";
 import { buildSampleProject } from "./sample";
 import type {
   AppEdge,
@@ -641,6 +649,8 @@ export const useProjectStore = create<Store>((set, get) => ({
       const existing = logSets.find((s) => s.id === setId);
       const schemaFields = mergeSchemaFromLogs(existing?.schemaFields ?? [], withIds);
       const suggested = suggestColumns(schemaFields, setLogs.length);
+      const firstPopulate = setLogs.length === withIds.length;
+      const suggestedHeaders = suggestHeaderPaths(withIds[0]?.data);
       const nextSets = logSets.map((s) =>
         s.id !== setId
           ? s
@@ -648,6 +658,10 @@ export const useProjectStore = create<Store>((set, get) => ({
               ...s,
               schemaFields,
               columns: s.columns.length === 0 ? suggested : s.columns,
+              headerPaths:
+                firstPopulate && suggestedHeaders.length > 0 && isPlaceholderHeaderPaths(s.headerPaths)
+                  ? suggestedHeaders
+                  : s.headerPaths,
             },
       );
       return upsertTab(
