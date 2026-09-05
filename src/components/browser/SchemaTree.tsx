@@ -1,8 +1,8 @@
 "use client";
 
-import { memo, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Eye, EyeOff, KeyRound, Pin } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, KeyRound, Pin } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { looksLikeIdPath } from "@/lib/groups";
 import { coveragePercent, typeLabel, type SchemaTreeNode } from "@/lib/schema";
@@ -10,12 +10,20 @@ import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 28;
 
-type FlatRow = { node: SchemaTreeNode; depth: number };
+type FlatRow = { node: SchemaTreeNode; depth: number; hasChildren: boolean };
 
-function flattenSchema(nodes: SchemaTreeNode[], depth = 0, out: FlatRow[] = []): FlatRow[] {
+function flattenSchema(
+  nodes: SchemaTreeNode[],
+  expanded: Set<string>,
+  depth = 0,
+  out: FlatRow[] = [],
+): FlatRow[] {
   for (const node of nodes) {
-    out.push({ node, depth });
-    if (node.children.length > 0) flattenSchema(node.children, depth + 1, out);
+    const hasChildren = node.children.length > 0;
+    out.push({ node, depth, hasChildren });
+    if (hasChildren && expanded.has(node.path)) {
+      flattenSchema(node.children, expanded, depth + 1, out);
+    }
   }
   return out;
 }
@@ -47,7 +55,8 @@ export const SchemaTree = memo(function SchemaTree({
   onToggleIdField,
   className,
 }: Props) {
-  const rows = useMemo(() => flattenSchema(nodes), [nodes]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const rows = useMemo(() => flattenSchema(nodes, expanded), [nodes, expanded]);
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -57,16 +66,26 @@ export const SchemaTree = memo(function SchemaTree({
     getItemKey: (index) => rows[index]?.node.path ?? index,
   });
 
+  const toggleExpanded = useCallback((path: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
   return (
     <div ref={parentRef} className={cn("min-h-0 flex-1 overflow-auto p-2", className)}>
       <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const row = rows[virtualRow.index];
           if (!row) return null;
-          const { node, depth } = row;
+          const { node, depth, hasChildren } = row;
           const field = node.field;
           const pinned = defaultPins.includes(node.path);
           const hidden = hiddenPaths.includes(node.path);
+          const open = expanded.has(node.path);
           return (
             <div
               key={node.path}
@@ -75,13 +94,22 @@ export const SchemaTree = memo(function SchemaTree({
             >
               <div
                 className="flex h-full items-center gap-1 rounded pr-1.5 hover:bg-zinc-900"
-                style={{ paddingLeft: 6 + depth * 10 }}
+                style={{ paddingLeft: 4 + depth * 10 }}
               >
-                {depth > 0 ? (
-                  <span className="w-3 shrink-0 text-[11px] leading-none text-zinc-600" aria-hidden>
-                    ↳
-                  </span>
-                ) : null}
+                {hasChildren ? (
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={open ? `Collapse ${node.label}` : `Expand ${node.label}`}
+                    title={open ? "Collapse" : "Expand"}
+                    onClick={() => toggleExpanded(node.path)}
+                    className="flex size-4 shrink-0 items-center justify-center rounded text-zinc-500 hover:text-zinc-200"
+                  >
+                    <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+                  </button>
+                ) : (
+                  <span className="size-4 shrink-0" aria-hidden />
+                )}
                 {field ? (
                   <Checkbox
                     checked={columns.includes(node.path)}

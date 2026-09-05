@@ -7,11 +7,13 @@ import {
   deleteProject as dbDelete,
   getLastProjectId,
   getProject,
+  hashesForSource,
   listProjects,
   putLogNote,
   putProjectDoc,
   replaceProject,
   setLastProjectId,
+  yieldUi,
   type MigrateProgress,
 } from "./db";
 import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
@@ -24,7 +26,8 @@ import {
   removeCanvasFromGroups,
   removeSourceFromGroups,
 } from "./groups";
-import { toLogRecords, type ParsedRow } from "./import-parse";
+import { hashPayload, shapeIdOf } from "./hash";
+import { type ParsedRow } from "./import-parse";
 import { normalizeProject, projectNormalizedDirty } from "./normalize";
 import {
   inferSchema,
@@ -52,6 +55,9 @@ import type {
   Viewport,
 } from "./types";
 import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, DEFAULT_SETTINGS, NOTE_COLORS, SCHEMA_VERSION } from "./types";
+import { findWorkingLog, sourceLogCount, sourceLogs } from "./working-logs";
+
+const IMPORT_CHUNK = 400;
 
 export type ProjectSummary = Pick<Project, "id" | "name" | "updatedAt" | "createdAt">;
 
@@ -60,8 +66,11 @@ type Store = {
   dirty: boolean;
   saving: boolean;
   migrateProgress: MigrateProgress | null;
+  importProgress: MigrateProgress | null;
   project: Project | null;
   projects: ProjectSummary[];
+  /** Per-source working set. Import writes here instead of cloning project.logs. */
+  logsBySource: Record<string, LogRecord[]>;
   importOpen: boolean;
   importTargetLogSetId: string | "new" | null;
   queuedImportFile: File | null;
@@ -166,6 +175,7 @@ function emptyLogSet(id: string, name: string, now: number, sourceFile?: string)
     hiddenPaths: [],
     schemaFields: [],
     idFieldPaths: [],
+    logCount: 0,
   };
 }
 
@@ -245,12 +255,14 @@ function upsertTab(project: Project, tab: Tab, active = true): Project {
 }
 
 export const useProjectStore = create<Store>((set, get) => ({
-  hydrated: true,
+  hydrated: false,
   dirty: false,
   saving: false,
   migrateProgress: null,
+  importProgress: null,
   project: null,
   projects: [],
+  logsBySource: {},
   importOpen: false,
   importTargetLogSetId: null,
   queuedImportFile: null,
@@ -268,7 +280,8 @@ export const useProjectStore = create<Store>((set, get) => ({
     const tab = project?.openTabs.find((t) => t.id === project.activeTabId);
     let target: string | "new" = "new";
     if (tab?.kind === "source" && project) {
-      const empty = !project.logs.some((log) => log.logSetId === tab.logSetId);
+      const set = project.logSets.find((s) => s.id === tab.logSetId);
+      const empty = set ? sourceLogCount(project, get().logsBySource, set) === 0 : true;
       if (empty) target = tab.logSetId;
     }
     set({ queuedImportFile: file, importOpen: true, importTargetLogSetId: target });
@@ -286,10 +299,26 @@ export const useProjectStore = create<Store>((set, get) => ({
       if (loaded && project && projectNormalizedDirty(loaded, project)) {
         await putProjectDoc(project);
       }
-      set({ hydrated: true, projects, project, dirty: false, migrateProgress: null });
+      set({
+        hydrated: true,
+        projects,
+        project,
+        dirty: false,
+        migrateProgress: null,
+        importProgress: null,
+        logsBySource: {},
+      });
     } catch (err) {
       console.warn("Failed to restore projects; starting empty.", err);
-      set({ hydrated: true, projects: [], project: null, dirty: false, migrateProgress: null });
+      set({
+        hydrated: true,
+        projects: [],
+        project: null,
+        dirty: false,
+        migrateProgress: null,
+        importProgress: null,
+        logsBySource: {},
+      });
     }
   },
 
@@ -299,7 +328,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const stored = await replaceProject(project);
     await setLastProjectId(stored.id);
     const projects = await listProjects();
-    set({ project: stored, projects, dirty: false });
+    set({ project: stored, projects, dirty: false, logsBySource: {} });
   },
 
   loadSample: async () => {
@@ -307,7 +336,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const project = await replaceProject(await buildSampleProject());
     await setLastProjectId(project.id);
     const projects = await listProjects();
-    set({ project, projects, dirty: false });
+    set({ project, projects, dirty: false, logsBySource: {} });
   },
 
   openProject: async (id) => {
@@ -318,7 +347,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const project = normalizeProject(raw);
     if (projectNormalizedDirty(raw, project)) await putProjectDoc(project);
     await setLastProjectId(id);
-    set({ project, dirty: false });
+    set({ project, dirty: false, logsBySource: {} });
   },
 
   renameProject: (name) => {
@@ -333,7 +362,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const next = projects[0] ? await getProject(projects[0].id) : null;
     if (next) await setLastProjectId(next.id);
     else await setLastProjectId(null);
-    set({ project: next ? normalizeProject(next) : null, projects, dirty: false });
+    set({ project: next ? normalizeProject(next) : null, projects, dirty: false, logsBySource: {} });
   },
 
   saveNow: async () => {
@@ -387,7 +416,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const normalized = await replaceProject(normalizeProject(project));
     await setLastProjectId(normalized.id);
     const projects = await listProjects();
-    set({ project: normalized, projects, dirty: false });
+    set({ project: normalized, projects, dirty: false, logsBySource: {} });
   },
 
   openItem: (item) => {
@@ -497,13 +526,14 @@ export const useProjectStore = create<Store>((set, get) => ({
     );
     const toAdd = logIds.filter((id) => !existing.has(id));
     if (toAdd.length === 0) return;
+    const cache = get().logsBySource;
     const start = origin ?? {
       x: -canvas.viewport.x / (canvas.viewport.zoom || 1) + 80,
       y: -canvas.viewport.y / (canvas.viewport.zoom || 1) + 80,
     };
     const autoPin = project.settings.autoPinCommonFields;
     const nodes: AppNode[] = toAdd.map((logId, i) => {
-      const log = project.logs.find((l) => l.id === logId);
+      const log = findWorkingLog(project, cache, logId);
       const source = log ? project.logSets.find((s) => s.id === log.logSetId) : undefined;
       const sourcePins = source?.defaultPinnedPaths ?? [];
       const pinnedPaths =
@@ -663,9 +693,14 @@ export const useProjectStore = create<Store>((set, get) => ({
   deleteLogSet: (id) => {
     const project = get().project;
     if (project) void deleteLogsForSource(project.id, id);
+    const cached = get().logsBySource[id] ?? [];
+    const { [id]: _dropped, ...restCache } = get().logsBySource;
     patchProject(set, get, (p) => {
       const logs = p.logs.filter((l) => l.logSetId !== id);
-      const removed = new Set(p.logs.filter((l) => l.logSetId === id).map((l) => l.id));
+      const removed = new Set([
+        ...p.logs.filter((l) => l.logSetId === id).map((l) => l.id),
+        ...cached.map((l) => l.id),
+      ]);
       const views = p.views.filter((v) => v.logSetId !== id);
       const removedViewIds = new Set(p.views.filter((v) => v.logSetId === id).map((v) => v.id));
       return {
@@ -686,34 +721,77 @@ export const useProjectStore = create<Store>((set, get) => ({
         sourceGroups: removeSourceFromGroups(p.sourceGroups ?? [], id),
       };
     });
+    set({ logsBySource: restCache });
   },
 
   importRows: async (logSetId, name, rows, sourceFile) => {
     const project = get().project;
     if (!project) return { added: 0, duplicates: 0, logSetId: "" };
     const setId = logSetId === "new" ? nanoid() : logSetId;
-    const { records, duplicates } = await toLogRecords(rows, {
-      logSetId: setId,
-      sourceFile,
-      dedupeMode: project.settings.dedupeMode,
-      existingHashes: hashIndexFromLogs(project.logs.filter((log) => log.logSetId === setId)),
-    });
-    const withIds = records.map((r) => ({ ...r, id: nanoid() }));
-    await appendLogs(project.id, withIds);
-    patchProject(set, get, (p) => {
+    const includeMeta = project.settings.dedupeMode === "payload+meta";
+    const dest = project.logSets.find((s) => s.id === setId);
+    const seen = await hashesForSource(project.id, setId);
+    for (const log of get().logsBySource[setId] ?? []) seen.add(log.hash);
+    const priorCount = seen.size;
+    const firstPopulate = priorCount === 0;
+
+    let schemaFields = dest?.schemaFields ?? [];
+    const hashIndexDelta: Record<string, string> = {};
+    let duplicates = 0;
+    let added = 0;
+    let firstNew: LogRecord | undefined;
+    const imported: LogRecord[] = [];
+
+    set({ importProgress: { done: 0, total: rows.length } });
+    await yieldUi();
+
+    try {
+      for (let i = 0; i < rows.length; i += IMPORT_CHUNK) {
+        const slice = rows.slice(i, i + IMPORT_CHUNK);
+        const hashes = await Promise.all(slice.map((row) => hashPayload(row.data, row.meta, includeMeta)));
+        const batch: LogRecord[] = [];
+        for (let j = 0; j < slice.length; j += 1) {
+          const row = slice[j];
+          const hash = hashes[j];
+          if (seen.has(hash)) {
+            duplicates += 1;
+            continue;
+          }
+          seen.add(hash);
+          const rec: LogRecord = {
+            id: nanoid(),
+            logSetId: setId,
+            hash,
+            data: row.data,
+            meta: row.meta,
+            note: "",
+            shapeId: shapeIdOf(row.data),
+            importedAt: Date.now(),
+            sourceFile,
+          };
+          batch.push(rec);
+          hashIndexDelta[hash] = rec.id;
+          firstNew ??= rec;
+        }
+        if (batch.length > 0) {
+          await appendLogs(project.id, batch);
+          schemaFields = mergeSchemaFromLogs(schemaFields, batch);
+          added += batch.length;
+          imported.push(...batch);
+        }
+        set({ importProgress: { done: Math.min(i + slice.length, rows.length), total: rows.length } });
+        await yieldUi();
+      }
+
+      const current = get().project;
+      if (!current) return { added, duplicates, logSetId: setId };
+
       const logSets =
         logSetId === "new"
-          ? [...p.logSets, emptyLogSet(setId, name.trim() || sourceFile || "Import", Date.now(), sourceFile)]
-          : p.logSets.map((s) => (s.id === setId ? { ...s, sourceFile: s.sourceFile ?? sourceFile } : s));
-      const hashIndex = { ...p.hashIndex };
-      for (const rec of withIds) hashIndex[rec.hash] = rec.id;
-      const logs = [...p.logs, ...withIds];
-      const setLogs = logs.filter((l) => l.logSetId === setId);
-      const existing = logSets.find((s) => s.id === setId);
-      const schemaFields = mergeSchemaFromLogs(existing?.schemaFields ?? [], withIds);
-      const suggested = suggestColumns(schemaFields, setLogs.length);
-      const firstPopulate = setLogs.length === withIds.length;
-      const suggestedHeaders = suggestHeaderPaths(withIds[0]?.data);
+          ? [...current.logSets, emptyLogSet(setId, name.trim() || sourceFile || "Import", Date.now(), sourceFile)]
+          : current.logSets.map((s) => (s.id === setId ? { ...s, sourceFile: s.sourceFile ?? sourceFile } : s));
+      const suggested = suggestColumns(schemaFields, priorCount + added);
+      const suggestedHeaders = firstPopulate && firstNew ? suggestHeaderPaths(firstNew.data) : [];
       const nextSets = logSets.map((s) =>
         s.id !== setId
           ? s
@@ -727,48 +805,94 @@ export const useProjectStore = create<Store>((set, get) => ({
                 firstPopulate && suggestedHeaders.length > 0 && isPlaceholderHeaderPaths(s.headerPaths)
                   ? suggestedHeaders
                   : s.headerPaths,
+              logCount: priorCount + added,
             },
       );
-      return upsertTab(
-        { ...p, logSets: nextSets, logs, hashIndex },
+      const nextProject = upsertTab(
+        {
+          ...current,
+          logSets: nextSets,
+          hashIndex: added > 0 ? { ...current.hashIndex, ...hashIndexDelta } : current.hashIndex,
+          updatedAt: Date.now(),
+        },
         { id: nanoid(), kind: "source", logSetId: setId },
       );
-    });
-    return { added: withIds.length, duplicates, logSetId: setId };
+      const nextCache = { ...get().logsBySource };
+      if (added > 0) {
+        const cached = nextCache[setId];
+        if (cached) nextCache[setId] = cached.concat(imported);
+        else {
+          const fromProject = current.logs.filter((l) => l.logSetId === setId);
+          nextCache[setId] = fromProject.length > 0 ? fromProject.concat(imported) : imported;
+        }
+      }
+      set({ project: nextProject, dirty: true, logsBySource: nextCache });
+      scheduleSave(get);
+      return { added, duplicates, logSetId: setId };
+    } finally {
+      set({ importProgress: null });
+    }
   },
 
   removeLogs: (ids) => {
     const project = get().project;
     if (project) void deleteLogs(project.id, ids);
     const drop = new Set(ids);
+    const cache = get().logsBySource;
+    const nextCache: Record<string, LogRecord[]> = {};
+    const affected = new Set<string>();
+    for (const [sid, logs] of Object.entries(cache)) {
+      const kept = logs.filter((l) => !drop.has(l.id));
+      if (kept.length !== logs.length) affected.add(sid);
+      nextCache[sid] = kept;
+    }
     patchProject(set, get, (p) => {
-      const affected = new Set(p.logs.filter((l) => drop.has(l.id)).map((l) => l.logSetId));
+      for (const log of p.logs) {
+        if (drop.has(log.id)) affected.add(log.logSetId);
+      }
       const logs = p.logs.filter((l) => !drop.has(l.id));
       return {
         ...p,
         logs,
         hashIndex: hashIndexFromLogs(logs),
-        logSets: p.logSets.map((s) =>
-          affected.has(s.id)
-            ? { ...s, schemaFields: inferSchema(logs.filter((l) => l.logSetId === s.id)) }
-            : s,
-        ),
+        logSets: p.logSets.map((s) => {
+          if (!affected.has(s.id)) return s;
+          const remaining = nextCache[s.id] ?? logs.filter((l) => l.logSetId === s.id);
+          return {
+            ...s,
+            schemaFields: inferSchema(remaining),
+            logCount: remaining.length,
+          };
+        }),
         canvases: p.canvases.map((c) => ({
           ...c,
           nodes: c.nodes.filter((n) => n.type !== "log" || !drop.has((n.data as { logId: string }).logId)),
         })),
       };
     });
+    set({ logsBySource: nextCache });
   },
 
   setLogNote: (id, note) => {
-    const project = get().project;
-    const log = project?.logs.find((l) => l.id === id);
+    const { project, logsBySource } = get();
+    const log = findWorkingLog(project, logsBySource, id);
     if (project && log) void putLogNote(project.id, { ...log, note });
     patchProject(set, get, (p) => ({
       ...p,
       logs: p.logs.map((l) => (l.id === id ? { ...l, note } : l)),
     }));
+    let cacheChanged = false;
+    const nextCache: Record<string, LogRecord[]> = {};
+    for (const [sid, logs] of Object.entries(logsBySource)) {
+      const idx = logs.findIndex((l) => l.id === id);
+      if (idx < 0) {
+        nextCache[sid] = logs;
+        continue;
+      }
+      cacheChanged = true;
+      nextCache[sid] = logs.map((l) => (l.id === id ? { ...l, note } : l));
+    }
+    if (cacheChanged) set({ logsBySource: nextCache });
   },
 
   ensureWorkingLogs: (logs) => {
@@ -789,7 +913,7 @@ export const useProjectStore = create<Store>((set, get) => ({
   createView: (logSetId, name) => {
     const id = nanoid();
     patchProject(set, get, (p) => {
-      const logs = p.logs.filter((l) => l.logSetId === logSetId);
+      const logs = sourceLogs(p, get().logsBySource, logSetId);
       const set = p.logSets.find((s) => s.id === logSetId);
       const view: BrowserView = {
         id,

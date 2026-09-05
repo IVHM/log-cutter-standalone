@@ -26,6 +26,7 @@ import { useProjectStore } from "@/lib/store";
 import { HEADER_COLORS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { logsInView } from "@/lib/views";
+import { findWorkingLog, sourceLogs, workingLogTotal } from "@/lib/working-logs";
 
 type Props = { viewId?: string; logSetId?: string };
 
@@ -40,6 +41,7 @@ function clampSchemaWidth(px: number, total: number) {
 
 export function LogBrowser({ viewId, logSetId }: Props) {
   const project = useProjectStore((s) => s.project);
+  const logsBySource = useProjectStore((s) => s.logsBySource);
   const updateView = useProjectStore((s) => s.updateView);
   const updateLogSet = useProjectStore((s) => s.updateLogSet);
   const toggleIdField = useProjectStore((s) => s.toggleIdField);
@@ -66,12 +68,12 @@ export function LogBrowser({ viewId, logSetId }: Props) {
 
   const scopedLogs = useMemo(() => {
     if (!project || !resolvedSetId) return [];
-    return project.logs.filter((l) => l.logSetId === resolvedSetId);
-  }, [project, resolvedSetId]);
+    return sourceLogs(project, logsBySource, resolvedSetId);
+  }, [project, logsBySource, resolvedSetId]);
 
   const filtered = useMemo(() => {
     if (!project || !resolvedSetId) return [];
-    if (view) return logsInView(project.logs, view, search);
+    if (view) return logsInView(scopedLogs, view, search);
     const q = search.trim().toLowerCase();
     if (!q) return scopedLogs;
     return scopedLogs.filter((log) => {
@@ -155,7 +157,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
     );
   }
 
-  const preview = previewId ? project.logs.find((l) => l.id === previewId) : null;
+  const preview = previewId ? findWorkingLog(project, logsBySource, previewId) : null;
   const sourceId = logSet.id;
   const headerPaths = logSet.headerPaths ?? [];
   const defaultPins = logSet.defaultPinnedPaths ?? [];
@@ -449,7 +451,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
         </div>
         <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-500">
           <span>
-            {sorted.length} shown · {scopedLogs.length} in source · {project.logs.length} in project
+            {sorted.length} shown · {scopedLogs.length} in source · {workingLogTotal(project, logsBySource)} in project
           </span>
           <Badge variant="secondary">{selected.size} selected</Badge>
         </div>

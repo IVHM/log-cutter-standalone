@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { LogBrowser } from "@/components/browser/LogBrowser";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { ImportDialog } from "@/components/import/ImportDialog";
@@ -14,10 +15,12 @@ import { useProjectStore } from "@/lib/store";
 
 export function AppShell() {
   const hydrate = useProjectStore((s) => s.hydrate);
+  const hydrated = useProjectStore((s) => s.hydrated);
   const project = useProjectStore((s) => s.project);
   const dirty = useProjectStore((s) => s.dirty);
   const saving = useProjectStore((s) => s.saving);
   const migrateProgress = useProjectStore((s) => s.migrateProgress);
+  const importProgress = useProjectStore((s) => s.importProgress);
   const saveNow = useProjectStore((s) => s.saveNow);
   const queueImportFile = useProjectStore((s) => s.queueImportFile);
 
@@ -67,18 +70,24 @@ export function AppShell() {
           <span className="truncate text-[10px] text-zinc-500">A json/csv log explorer</span>
         </div>
         <span className="text-[11px] text-zinc-600">
-          {migrateProgress
-            ? "Upgrading storage…"
-            : saving
-              ? "Saving…"
-              : dirty
-                ? "Unsaved"
-                : project
-                  ? "Saved locally"
-                  : ""}
+          {importProgress
+            ? `Importing ${importProgress.done}/${importProgress.total}…`
+            : migrateProgress
+              ? "Upgrading storage…"
+              : saving
+                ? "Saving…"
+                : dirty
+                  ? "Unsaved"
+                  : project
+                    ? "Saved locally"
+                    : ""}
         </span>
       </header>
-      {migrateProgress ? (
+      {!hydrated && !migrateProgress ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950 text-sm text-zinc-500">
+          Loading…
+        </div>
+      ) : migrateProgress ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-zinc-950 px-6 text-center">
           <p className="text-sm text-zinc-200">Upgrading local storage to hybrid fields…</p>
           <p className="text-[13px] text-zinc-500">
@@ -117,6 +126,22 @@ export function AppShell() {
         </div>
       )}
       <ImportDialog />
+      {importProgress
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-2 bg-zinc-950/80 text-center"
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <p className="text-sm font-medium text-zinc-100">
+                Importing {importProgress.done}/{importProgress.total}…
+              </p>
+              <p className="text-[12px] text-zinc-500">Stay on this tab until import finishes.</p>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

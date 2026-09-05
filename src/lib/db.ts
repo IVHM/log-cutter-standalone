@@ -78,7 +78,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-function yieldUi(): Promise<void> {
+export function yieldUi(): Promise<void> {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
     else setTimeout(resolve, 0);
@@ -384,7 +384,48 @@ export async function replaceProject(
 export async function appendLogs(projectId: string, logs: LogRecord[]): Promise<void> {
   if (logs.length === 0) return;
   await ensureBackend();
-  await writeLogsChunked(projectId, logs);
+  for (let i = 0; i < logs.length; i += WRITE_CHUNK) {
+    await writeLogChunk(projectId, logs.slice(i, i + WRITE_CHUNK));
+  }
+}
+
+/** Payload hashes already stored for this source. Scans memory, then IDB — not project.logs. */
+export async function hashesForSource(projectId: string, sourceId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const row of memory.logs.values()) {
+    if (row.projectId === projectId && row.sourceId === sourceId) out.add(row.hash);
+  }
+  if (out.size > 0) return out;
+  try {
+    const backend = await ensureBackend();
+    if (backend === "memory" || !dexie) return out;
+    const rows = await dexie.logs.where("[projectId+sourceId]").equals([projectId, sourceId]).toArray();
+    for (const row of rows) {
+      out.add(row.hash);
+      memory.logs.set(row.id, row);
+    }
+  } catch {
+    /* keep whatever we collected */
+  }
+  return out;
+}
+
+/** Logs for one source from memory/IDB. Does not allocate other sources. */
+export async function getLogsForSource(projectId: string, sourceId: string): Promise<LogRecord[]> {
+  const fromMem: LogRecord[] = [];
+  for (const row of memory.logs.values()) {
+    if (row.projectId === projectId && row.sourceId === sourceId) fromMem.push(fromLogRow(row));
+  }
+  if (fromMem.length > 0) return fromMem;
+  try {
+    const backend = await ensureBackend();
+    if (backend === "memory" || !dexie) return fromMem;
+    const rows = await dexie.logs.where("[projectId+sourceId]").equals([projectId, sourceId]).toArray();
+    for (const row of rows) memory.logs.set(row.id, row);
+    return rows.map(fromLogRow);
+  } catch {
+    return fromMem;
+  }
 }
 
 export async function deleteLogs(projectId: string, ids: string[]): Promise<void> {

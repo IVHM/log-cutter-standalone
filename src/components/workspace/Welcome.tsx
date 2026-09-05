@@ -1,7 +1,7 @@
 "use client";
 
 import { FileJson, FolderKanban, LayoutDashboard } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProjectStore } from "@/lib/store";
@@ -14,13 +14,18 @@ export function Welcome() {
   const openProject = useProjectStore((s) => s.openProject);
   const [name, setName] = useState("New investigation");
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <div className="flex h-full items-center justify-center bg-zinc-950 p-6">
       <div className="w-full max-w-lg space-y-6">
         <div>
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-sky-400">
-            JSON Log Explorer
+            LogSplitter
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-50">
             Investigate JSON logs on a canvas, not in a pager dump.
@@ -108,8 +113,8 @@ export function Welcome() {
                   >
                     <FolderKanban className="size-4 text-zinc-500" />
                     <span className="flex-1 truncate">{p.name}</span>
-                    <span className="text-[11px] text-zinc-600">
-                      {new Date(p.updatedAt).toLocaleString()}
+                    <span className="text-[11px] text-zinc-600" suppressHydrationWarning>
+                      {mounted ? new Date(p.updatedAt).toLocaleString() : null}
                     </span>
                   </button>
                 </li>

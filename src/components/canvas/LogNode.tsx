@@ -14,6 +14,7 @@ import type { SameValueQuery } from "@/lib/fields";
 import { idLinkForPath } from "@/lib/groups";
 import { formatScalar, getAtPath, isHiddenPath, joinPath } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
+import { findWorkingLog } from "@/lib/working-logs";
 import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, type LogNodeData, type LogRecord } from "@/lib/types";
 import { NodeConnectHandles } from "./NodeConnectHandles";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,7 @@ import { useCanvasId } from "./canvas-context";
 
 export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData }) {
   const canvasId = useCanvasId();
-  const log = useProjectStore((s) => s.project?.logs.find((l) => l.id === data.logId));
+  const log = useProjectStore((s) => findWorkingLog(s.project, s.logsBySource, data.logId));
   const logSet = useProjectStore((s) =>
     s.project?.logSets.find((set) => set.id === log?.logSetId),
   );

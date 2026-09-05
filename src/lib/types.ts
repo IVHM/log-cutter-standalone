@@ -61,6 +61,8 @@ export type LogSet = {
   schemaFields: SchemaField[];
   /** Paths marked as identity fields for IdLinks / 🔗. */
   idFieldPaths: string[];
+  /** Row count for this source (import updates this; avoids scanning project.logs). */
+  logCount?: number;
 };
 
 export type IdLink = {
@@ -196,7 +198,7 @@ export type ProjectDoc = {
 export type Project = ProjectDoc & {
   /** Working set. Not stored on the projects row after schema v2. */
   logs: LogRecord[];
-  /** Derived in memory from logs. Import dedup uses hashes in the destination source only. */
+  /** Derived in memory. Import dedup uses IDB / source-scoped hashes, not a full logs scan. */
   hashIndex: Record<string, string>;
 };
 

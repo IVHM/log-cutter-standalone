@@ -23,6 +23,7 @@ type Props = {
   originLogId?: string;
   sortBy?: { path: string; dir: "asc" | "desc" };
   onToggleSort?: (path: string) => void;
+  onHeaderClick?: (path: string) => void;
   onToggleSelect: (id: string, checked: boolean) => void;
   onToggleSelectAll: () => void;
   onRowClick?: (log: LogRecord) => void;
@@ -45,6 +46,7 @@ export function VirtualLogTable({
   originLogId,
   sortBy,
   onToggleSort,
+  onHeaderClick,
   onToggleSelect,
   onToggleSelectAll,
   onRowClick,
@@ -231,6 +233,15 @@ export function VirtualLogTable({
                       >
                         {col}
                         {sortBy?.path === col ? (sortBy.dir === "asc" ? " ↑" : " ↓") : ""}
+                      </button>
+                    ) : onHeaderClick ? (
+                      <button
+                        type="button"
+                        title="Change column field"
+                        className="block w-full truncate text-left hover:text-zinc-100"
+                        onClick={() => onHeaderClick(col)}
+                      >
+                        {col}
                       </button>
                     ) : (
                       <span className="block truncate">{col}</span>

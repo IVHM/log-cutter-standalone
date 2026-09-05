@@ -31,6 +31,7 @@ import { canvasGroupOf, sourceGroupOf } from "@/lib/groups";
 import { useProjectStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { logsInView } from "@/lib/views";
+import { sourceLogCount, sourceLogs } from "@/lib/working-logs";
 
 export function Sidebar() {
   const project = useProjectStore((s) => s.project);
@@ -55,6 +56,7 @@ export function Sidebar() {
   const moveSourceToGroup = useProjectStore((s) => s.moveSourceToGroup);
   const moveCanvasToGroup = useProjectStore((s) => s.moveCanvasToGroup);
   const setImportOpen = useProjectStore((s) => s.setImportOpen);
+  const logsBySource = useProjectStore((s) => s.logsBySource);
   const activeTabId = project?.activeTabId;
   const activeTab = project?.openTabs.find((t) => t.id === activeTabId);
 
@@ -173,7 +175,7 @@ export function Sidebar() {
               {group.sourceIds.map((id) => {
                 const set = project.logSets.find((item) => item.id === id);
                 if (!set) return null;
-                const count = project.logs.filter((l) => l.logSetId === set.id).length;
+                const count = sourceLogCount(project, logsBySource, set);
                 return (
                   <OutlineRow
                     key={set.id}
@@ -196,7 +198,7 @@ export function Sidebar() {
           {project.logSets
             .filter((set) => !sourceGroupOf(project, set.id))
             .map((set) => {
-              const count = project.logs.filter((l) => l.logSetId === set.id).length;
+              const count = sourceLogCount(project, logsBySource, set);
               return (
                 <OutlineRow
                   key={set.id}
@@ -257,7 +259,7 @@ export function Sidebar() {
                     icon={<Funnel className="size-3.5" />}
                     label={v.name}
                     active={activeTab?.kind === "browser" && activeTab.viewId === v.id}
-                    count={logsInView(project.logs, v).length}
+                    count={logsInView(sourceLogs(project, logsBySource, v.logSetId), v).length}
                     onClick={() => openItem({ type: "view", id: v.id })}
                     onRename={(name) => updateView(v.id, { name })}
                     onDelete={() => deleteView(v.id)}

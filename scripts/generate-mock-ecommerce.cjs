@@ -1,11 +1,35 @@
 /**
- * Generates mock e-commerce CSVs for LogSplitter import.
- * Run: node scripts/generate-mock-ecommerce.cjs
+ * Generates mock e-commerce CSVs for LogSplitter import / stress tests.
+ *
+ *   node scripts/generate-mock-ecommerce.cjs
+ *   node scripts/generate-mock-ecommerce.cjs --events=5000 --out=public/mock-ecommerce-data/stress-l
+ *   node scripts/generate-mock-ecommerce.cjs --events=200 --out=public/mock-ecommerce-data/stress-s
+ *
+ * Flags:
+ *   --events=N   total events (default 1000); split ~80% purchase / 15% refund / 5% return
+ *   --out=DIR    output directory relative to repo root (default public/mock-ecommerce-data)
  */
 const fs = require("fs");
 const path = require("path");
 
-const ROOT = path.join(__dirname, "..", "public", "mock-ecommerce-data");
+function argValue(prefix, fallback) {
+  const hit = process.argv.find((a) => a.startsWith(prefix));
+  if (!hit) return fallback;
+  const v = hit.slice(prefix.length);
+  return v || fallback;
+}
+
+const TOTAL_EVENTS = Math.max(20, Number(argValue("--events=", "1000")) || 1000);
+const OUT_REL = argValue("--out=", "public/mock-ecommerce-data");
+const ROOT = path.isAbsolute(OUT_REL)
+  ? OUT_REL
+  : path.join(__dirname, "..", OUT_REL);
+
+const PURCHASE_N = Math.round(TOTAL_EVENTS * 0.8);
+const REFUND_N = Math.round(TOTAL_EVENTS * 0.15);
+const RETURN_N = TOTAL_EVENTS - PURCHASE_N - REFUND_N;
+const EVT_PAD = Math.max(4, String(TOTAL_EVENTS).length);
+
 const HOSTS = ["ecom-api-1", "ecom-api-2", "ecom-worker-1", "ecom-cs-1"];
 
 const FIRST = ["Ava", "Noah", "Mia", "Liam", "Zoe", "Ethan", "Iris", "Owen", "Chloe", "Kai", "Nina", "Jude", "Elena", "Miles", "Priya", "Sam", "Jordan", "Casey", "Riley", "Quinn"];
@@ -216,11 +240,7 @@ for (let i = 1; i <= 100; i++) {
   items.push(item);
 }
 
-// --- Events (1000): ~800 purchase, ~150 refund, ~50 return ---
-const PURCHASE_N = 800;
-const REFUND_N = 150;
-const RETURN_N = 50;
-
+// --- Events: ~80% purchase, ~15% refund, ~5% return ---
 const purchases = [];
 const events = [];
 
@@ -231,7 +251,7 @@ function activePmForUser(userId, salt) {
 }
 
 for (let i = 1; i <= PURCHASE_N; i++) {
-  const evtId = `evt_${pad(i, 4)}`;
+  const evtId = `evt_${pad(i, EVT_PAD)}`;
   const user = users[(i * 11) % 70];
   const pm = activePmForUser(user.userId, i);
   const lineCount = 1 + (i % 5);
@@ -320,7 +340,7 @@ function cloneLinesSubset(purchase, salt, maxLines) {
 for (let r = 0; r < REFUND_N; r++) {
   const purchase = purchases[(r * 17) % PURCHASE_N];
   const i = PURCHASE_N + r + 1;
-  const evtId = `evt_${pad(i, 4)}`;
+  const evtId = `evt_${pad(i, EVT_PAD)}`;
   const refundLines = cloneLinesSubset(purchase, r, 3);
   const amount = money(refundLines.reduce((s, l) => s + l.lineTotal, 0) * 1.05);
   const day = ((r * 5) % 200) + 1;
@@ -368,7 +388,7 @@ for (let r = 0; r < REFUND_N; r++) {
 for (let r = 0; r < RETURN_N; r++) {
   const purchase = purchases[(r * 23 + 3) % PURCHASE_N];
   const i = PURCHASE_N + REFUND_N + r + 1;
-  const evtId = `evt_${pad(i, 4)}`;
+  const evtId = `evt_${pad(i, EVT_PAD)}`;
   const returnLines = cloneLinesSubset(purchase, r + 9, 2);
   const day = ((r * 7) % 200) + 2;
   const ts = iso(day, 12 + (r % 6), r % 60, r % 60, r % 1000);
@@ -467,6 +487,7 @@ console.log(
       refunds: REFUND_N,
       returns: RETURN_N,
       fingerprintsSharedAcrossUsers: multiUserCards,
+      out: ROOT,
     },
     null,
     2,

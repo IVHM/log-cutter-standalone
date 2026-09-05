@@ -21,12 +21,13 @@ export function canonicalize(value: unknown): string {
 
 function hex(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
+  const hexes = HEX;
   let out = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    out += bytes[i].toString(16).padStart(2, "0");
-  }
+  for (let i = 0; i < bytes.length; i += 1) out += hexes[bytes[i]];
   return out;
 }
+
+const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
 
 export async function sha256Hex(text: string): Promise<string> {
   const encoded = new TextEncoder().encode(text);

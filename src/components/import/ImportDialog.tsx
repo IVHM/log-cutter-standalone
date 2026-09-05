@@ -24,6 +24,28 @@ import {
 import { inspectFile, materializeRows, type DetectedFile } from "@/lib/import-parse";
 import { formatScalar } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
+import type { LogSet } from "@/lib/types";
+import { sourceLogCount } from "@/lib/working-logs";
+
+function fileStem(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, "");
+}
+
+function norm(value: string) {
+  return value.trim().toLowerCase();
+}
+
+/** Match a detected file to an existing source by name or original sourceFile. */
+export function matchExistingSource(logSets: LogSet[], fileName: string): LogSet | undefined {
+  const stem = norm(fileStem(fileName));
+  const full = norm(fileName);
+  return (
+    logSets.find((set) => norm(set.name) === stem) ||
+    logSets.find((set) => norm(set.name) === full) ||
+    logSets.find((set) => set.sourceFile != null && norm(set.sourceFile) === full) ||
+    logSets.find((set) => set.sourceFile != null && norm(fileStem(set.sourceFile)) === stem)
+  );
+}
 
 export function ImportDialog() {
   const open = useProjectStore((s) => s.importOpen);
@@ -33,6 +55,8 @@ export function ImportDialog() {
   const queuedFile = useProjectStore((s) => s.queuedImportFile);
   const queueImportFile = useProjectStore((s) => s.queueImportFile);
   const importTarget = useProjectStore((s) => s.importTargetLogSetId);
+  const logsBySource = useProjectStore((s) => s.logsBySource);
+  const importProgress = useProjectStore((s) => s.importProgress);
   const [detected, setDetected] = useState<DetectedFile | null>(null);
   const [jsonColumn, setJsonColumn] = useState<string | "none">("none");
   const [logSetId, setLogSetId] = useState<string | "new">("new");
@@ -40,24 +64,38 @@ export function ImportDialog() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const targetEmpty =
-    logSetId !== "new" && !(project?.logs.some((log) => log.logSetId === logSetId) ?? false);
+  const importing = Boolean(importProgress);
+  const destSet = logSetId !== "new" ? project?.logSets.find((s) => s.id === logSetId) : undefined;
+  const targetEmpty = logSetId !== "new" && (destSet ? sourceLogCount(project, logsBySource, destSet) === 0 : true);
   const showName = logSetId === "new" || targetEmpty;
+  const explicitTarget =
+    importTarget && importTarget !== "new" && (project?.logSets.some((set) => set.id === importTarget) ?? false)
+      ? importTarget
+      : null;
 
   useEffect(() => {
     if (!open) return;
-    setLogSetId(importTarget && importTarget !== "new" ? importTarget : "new");
-  }, [open, importTarget]);
+    setLogSetId(explicitTarget ?? "new");
+  }, [open, explicitTarget]);
+
+  function applyDetected(result: DetectedFile) {
+    setDetected(result);
+    setJsonColumn(result.suggestedJsonColumn ?? (result.kind === "csv" ? "none" : "json"));
+    setNewName(fileStem(result.fileName));
+    if (explicitTarget) {
+      setLogSetId(explicitTarget);
+      return;
+    }
+    const match = matchExistingSource(project?.logSets ?? [], result.fileName);
+    setLogSetId(match?.id ?? "new");
+  }
 
   async function onFiles(files: FileList | File[]) {
     const file = files[0];
     if (!file) return;
     setError(null);
     try {
-      const result = await inspectFile(file);
-      setDetected(result);
-      setJsonColumn(result.suggestedJsonColumn ?? (result.kind === "csv" ? "none" : "json"));
-      setNewName(file.name.replace(/\.[^.]+$/, ""));
+      applyDetected(await inspectFile(file));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that file.");
     }
@@ -69,9 +107,7 @@ export function ImportDialog() {
     queueImportFile(null);
     void inspectFile(file)
       .then((result) => {
-        setDetected(result);
-        setJsonColumn(result.suggestedJsonColumn ?? (result.kind === "csv" ? "none" : "json"));
-        setNewName(file.name.replace(/\.[^.]+$/, ""));
+        applyDetected(result);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -108,6 +144,7 @@ export function ImportDialog() {
     <Dialog
       open={open}
       onOpenChange={(v) => {
+        if (!v && importing) return;
         setOpen(v);
         if (!v) {
           setDetected(null);
@@ -115,7 +152,19 @@ export function ImportDialog() {
         }
       }}
     >
-      <DialogContent className="max-w-2xl sm:max-w-2xl">
+      <DialogContent
+        className="max-w-2xl sm:max-w-2xl"
+        showCloseButton={!importing}
+        onEscapeKeyDown={(e) => {
+          if (importing) e.preventDefault();
+        }}
+        onPointerDownOutside={(e) => {
+          if (importing) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (importing) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Import JSON logs</DialogTitle>
           <DialogDescription>
@@ -198,11 +247,11 @@ export function ImportDialog() {
         ) : null}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" disabled={busy || importing} onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button disabled={!detected || busy} onClick={() => void confirm()}>
-            {busy ? "Importing…" : "Import"}
+          <Button disabled={!detected || busy || importing} onClick={() => void confirm()}>
+            {busy || importing ? "Importing…" : "Import"}
           </Button>
         </DialogFooter>
       </DialogContent>
