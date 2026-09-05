@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { JsonTree } from "@/components/json/JsonTree";
 import { jsonType } from "@/lib/hash";
 import { logField } from "@/lib/filter";
-import { formatScalar, getAtPath } from "@/lib/json-path";
+import { formatScalar, getAtPath, isHiddenPath } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
 import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, type LogNodeData } from "@/lib/types";
 import { NodeConnectHandles } from "./NodeConnectHandles";
@@ -98,12 +98,17 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
 
       <div className="nowheel nopan max-h-[420px] overflow-auto p-2">
         {data.collapsed ? (
-          <CollapsedBody data={log.data} pinnedPaths={data.pinnedPaths} />
+          <CollapsedBody
+            data={log.data}
+            pinnedPaths={data.pinnedPaths}
+            hiddenPaths={logSet?.hiddenPaths ?? []}
+          />
         ) : (
           <JsonTree
             value={log.data}
             pinnedPaths={data.pinnedPaths}
             collapsedPaths={data.collapsedPaths}
+            hiddenPaths={logSet?.hiddenPaths ?? []}
             onTogglePin={togglePin}
             onToggleCollapse={toggleCollapsePath}
           />
@@ -171,8 +176,17 @@ function headerFg(hex: string): string {
   return (r * 299 + g * 587 + b * 114) / 1000 >= 150 ? "#18181b" : "#f4f4f5";
 }
 
-function CollapsedBody({ data, pinnedPaths }: { data: unknown; pinnedPaths: string[] }) {
-  if (pinnedPaths.length === 0) {
+function CollapsedBody({
+  data,
+  pinnedPaths,
+  hiddenPaths,
+}: {
+  data: unknown;
+  pinnedPaths: string[];
+  hiddenPaths: string[];
+}) {
+  const visiblePins = pinnedPaths.filter((path) => !isHiddenPath(path, hiddenPaths));
+  if (visiblePins.length === 0) {
     return (
       <p className="px-1 py-2 text-[11px] italic text-zinc-500">
         Expand this log and pin fields to keep them visible when collapsed.
@@ -181,7 +195,7 @@ function CollapsedBody({ data, pinnedPaths }: { data: unknown; pinnedPaths: stri
   }
   return (
     <div className="space-y-1">
-      {pinnedPaths.map((path) => (
+      {visiblePins.map((path) => (
         <div key={path} className="flex items-start gap-2 font-mono text-[11px]">
           <span className="shrink-0 text-zinc-500">{path}</span>
           <span className="min-w-0 break-all text-zinc-200">{formatScalar(getAtPath(data, path), 100)}</span>

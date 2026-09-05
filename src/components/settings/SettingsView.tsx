@@ -1,7 +1,16 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -12,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImportProjectControl } from "@/components/project/ImportProjectControl";
+import { probeQuitRuntime, requestShutdown, type QuitKind } from "@/lib/runtime";
 import { useProjectStore } from "@/lib/store";
 
 export function SettingsView() {
@@ -21,6 +31,13 @@ export function SettingsView() {
   const exportProject = useProjectStore((s) => s.exportProject);
   const deleteCurrentProject = useProjectStore((s) => s.deleteCurrentProject);
   const saveNow = useProjectStore((s) => s.saveNow);
+  const [quitKind, setQuitKind] = useState<QuitKind | null>(null);
+  const [confirmQuit, setConfirmQuit] = useState(false);
+  const [quitting, setQuitting] = useState(false);
+
+  useEffect(() => {
+    void probeQuitRuntime().then(setQuitKind);
+  }, []);
 
   if (!project) return null;
   const s = project.settings;
@@ -102,7 +119,7 @@ export function SettingsView() {
             checked={s.autoPinCommonFields}
             onCheckedChange={(v) => updateSettings({ autoPinCommonFields: Boolean(v) })}
           />
-          Auto-pin common fields (ts, level, message, …) when placing a log
+          When a source has no default pins, auto-pin common fields (ts, level, message, …) on new cards
         </label>
       </section>
 
@@ -112,6 +129,11 @@ export function SettingsView() {
           Export project file
         </Button>
         <ImportProjectControl />
+        {quitKind ? (
+          <Button variant="outline" onClick={() => setConfirmQuit(true)}>
+            {quitKind === "electron" ? "Quit app" : "Shut down server"}
+          </Button>
+        ) : null}
         <Button
           variant="destructive"
           onClick={() => {
@@ -123,6 +145,34 @@ export function SettingsView() {
           Delete project
         </Button>
       </section>
+
+      <Dialog open={confirmQuit} onOpenChange={setConfirmQuit}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{quitKind === "electron" ? "Quit LogSplitter?" : "Shut down server?"}</DialogTitle>
+            <DialogDescription>
+              {quitKind === "electron"
+                ? "LogSplitter will close. Your project stays in local storage on this machine."
+                : "This stops the local HTTP server. This tab will stop working until you start it again."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmQuit(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={quitting}
+              onClick={() => {
+                setQuitting(true);
+                void requestShutdown();
+              }}
+            >
+              {quitting ? "Stopping…" : quitKind === "electron" ? "Quit" : "Shut down"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -9,9 +9,9 @@ import {
   setLastProjectId,
 } from "./db";
 import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
-import { emptyFilter, filterHasClauses } from "./filter";
+import { emptyFilter } from "./filter";
 import { toLogRecords, type ParsedRow } from "./import-parse";
-import { normalizeProject } from "./normalize";
+import { normalizeProject, projectNormalizedDirty } from "./normalize";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import { buildSampleProject } from "./sample";
 import type {
@@ -108,36 +108,34 @@ export type SidebarTarget =
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
+function emptyLogSet(id: string, name: string, now: number, sourceFile?: string): LogSet {
+  return {
+    id,
+    name,
+    createdAt: now,
+    sourceFile,
+    headerPaths: [...DEFAULT_HEADER_PATHS],
+    headerColor: DEFAULT_HEADER_COLOR,
+    columns: [],
+    defaultPinnedPaths: [],
+    hiddenPaths: [],
+  };
+}
+
 function emptyProject(name: string): Project {
   const now = Date.now();
   const canvasId = nanoid();
   const logSetId = nanoid();
-  const viewId = nanoid();
   const canvasTabId = nanoid();
-  const viewTabId = nanoid();
   return {
     id: nanoid(),
     name,
     createdAt: now,
     updatedAt: now,
-    logSets: [{
-      id: logSetId,
-      name: "Logs",
-      createdAt: now,
-      headerPaths: [...DEFAULT_HEADER_PATHS],
-      headerColor: DEFAULT_HEADER_COLOR,
-    }],
+    logSets: [emptyLogSet(logSetId, "Logs", now)],
     logs: [],
     hashIndex: {},
-    views: [
-      {
-        id: viewId,
-        name: "All logs",
-        logSetId,
-        columns: [],
-        filter: emptyFilter(),
-      },
-    ],
+    views: [],
     canvases: [
       {
         id: canvasId,
@@ -148,10 +146,7 @@ function emptyProject(name: string): Project {
       },
     ],
     settings: { ...DEFAULT_SETTINGS },
-    openTabs: [
-      { id: canvasTabId, kind: "canvas", canvasId },
-      { id: viewTabId, kind: "browser", viewId },
-    ],
+    openTabs: [{ id: canvasTabId, kind: "canvas", canvasId }],
     activeTabId: canvasTabId,
     lastCanvasId: canvasId,
   };
@@ -183,6 +178,7 @@ function upsertTab(project: Project, tab: Tab, active = true): Project {
   const existing = project.openTabs.find((t) => {
     if (t.kind !== tab.kind) return false;
     if (t.kind === "canvas" && tab.kind === "canvas") return t.canvasId === tab.canvasId;
+    if (t.kind === "source" && tab.kind === "source") return t.logSetId === tab.logSetId;
     if (t.kind === "browser" && tab.kind === "browser") return t.viewId === tab.viewId;
     return t.kind === "settings" && tab.kind === "settings";
   });
@@ -212,8 +208,12 @@ export const useProjectStore = create<Store>((set, get) => ({
       const projects = await listProjects();
       const lastId = await getLastProjectId();
       const openId = lastId && projects.some((p) => p.id === lastId) ? lastId : projects[0]?.id;
-      const project = openId ? ((await getProject(openId)) ?? null) : null;
-      set({ hydrated: true, projects, project: project ? normalizeProject(project) : null, dirty: false });
+      const loaded = openId ? ((await getProject(openId)) ?? null) : null;
+      const project = loaded ? normalizeProject(loaded) : null;
+      if (loaded && project && projectNormalizedDirty(loaded, project)) {
+        await putProject(project);
+      }
+      set({ hydrated: true, projects, project, dirty: false });
     } catch (err) {
       console.warn("Failed to restore projects; starting empty.", err);
       set({ hydrated: true, projects: [], project: null, dirty: false });
@@ -240,10 +240,12 @@ export const useProjectStore = create<Store>((set, get) => ({
 
   openProject: async (id) => {
     await get().saveNow();
-    const project = await getProject(id);
-    if (!project) return;
+    const raw = await getProject(id);
+    if (!raw) return;
+    const project = normalizeProject(raw);
+    if (projectNormalizedDirty(raw, project)) await putProject(project);
     await setLastProjectId(id);
-    set({ project: normalizeProject(project), dirty: false });
+    set({ project, dirty: false });
   },
 
   renameProject: (name) => {
@@ -297,7 +299,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const parsed = JSON.parse(text) as { format?: string; project?: Project } | Project;
     const raw = "project" in parsed && parsed.project ? parsed.project : (parsed as Project);
     if (!raw || !Array.isArray(raw.logs) || !Array.isArray(raw.canvases)) {
-      throw new Error("Not a JSON Log Explorer project file.");
+      throw new Error("Not a LogSplitter project file.");
     }
     const project: Project = {
       ...emptyProject(raw.name || file.name),
@@ -325,22 +327,7 @@ export const useProjectStore = create<Store>((set, get) => ({
       if (item.type === "settings") {
         return upsertTab(p, { id: nanoid(), kind: "settings" });
       }
-      const unfiltered = p.views.find((v) => v.logSetId === item.id && !filterHasClauses(v.filter));
-      const existing = unfiltered ?? p.views.find((v) => v.logSetId === item.id);
-      if (existing) {
-        return upsertTab(p, { id: nanoid(), kind: "browser", viewId: existing.id });
-      }
-      const view: BrowserView = {
-        id: nanoid(),
-        name: p.logSets.find((s) => s.id === item.id)?.name ?? "Logs",
-        logSetId: item.id,
-        columns: suggestColumns(
-          inferSchema(p.logs.filter((l) => l.logSetId === item.id)),
-          p.logs.filter((l) => l.logSetId === item.id).length,
-        ),
-        filter: emptyFilter(),
-      };
-      return upsertTab({ ...p, views: [...p.views, view] }, { id: nanoid(), kind: "browser", viewId: view.id });
+      return upsertTab(p, { id: nanoid(), kind: "source", logSetId: item.id });
     });
   },
 
@@ -434,6 +421,14 @@ export const useProjectStore = create<Store>((set, get) => ({
     const autoPin = project.settings.autoPinCommonFields;
     const nodes: AppNode[] = toAdd.map((logId, i) => {
       const log = project.logs.find((l) => l.id === logId);
+      const source = log ? project.logSets.find((s) => s.id === log.logSetId) : undefined;
+      const sourcePins = source?.defaultPinnedPaths ?? [];
+      const pinnedPaths =
+        sourcePins.length > 0
+          ? [...sourcePins]
+          : autoPin && log
+            ? suggestPins(log.data)
+            : [];
       const col = i % 3;
       const row = Math.floor(i / 3);
       return {
@@ -444,7 +439,7 @@ export const useProjectStore = create<Store>((set, get) => ({
           kind: "log",
           logId,
           collapsed: true,
-          pinnedPaths: autoPin && log ? suggestPins(log.data) : [],
+          pinnedPaths,
           collapsedPaths: [],
         },
       };
@@ -558,13 +553,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     const id = nanoid();
     patchProject(set, get, (p) => ({
       ...p,
-      logSets: [...p.logSets, {
-        id,
-        name: name.trim() || "Log set",
-        createdAt: Date.now(),
-        headerPaths: [...DEFAULT_HEADER_PATHS],
-        headerColor: DEFAULT_HEADER_COLOR,
-      }],
+      logSets: [...p.logSets, emptyLogSet(id, name.trim() || "Source", Date.now())],
     }));
     return id;
   },
@@ -603,7 +592,11 @@ export const useProjectStore = create<Store>((set, get) => ({
           ...c,
           nodes: c.nodes.filter((n) => n.type !== "log" || !removed.has((n.data as { logId: string }).logId)),
         })),
-        openTabs: p.openTabs.filter((t) => !(t.kind === "browser" && removedViewIds.has(t.viewId))),
+        openTabs: p.openTabs.filter(
+          (t) =>
+            !(t.kind === "browser" && removedViewIds.has(t.viewId)) &&
+            !(t.kind === "source" && t.logSetId === id),
+        ),
       };
     });
   },
@@ -622,42 +615,21 @@ export const useProjectStore = create<Store>((set, get) => ({
     patchProject(set, get, (p) => {
       const logSets =
         logSetId === "new"
-          ? [...p.logSets, {
-              id: setId,
-              name: name.trim() || sourceFile || "Import",
-              createdAt: Date.now(),
-              sourceFile,
-              headerPaths: [...DEFAULT_HEADER_PATHS],
-              headerColor: DEFAULT_HEADER_COLOR,
-            }]
+          ? [...p.logSets, emptyLogSet(setId, name.trim() || sourceFile || "Import", Date.now(), sourceFile)]
           : p.logSets.map((s) => (s.id === setId ? { ...s, sourceFile: s.sourceFile ?? sourceFile } : s));
       const hashIndex = { ...p.hashIndex };
       for (const rec of withIds) hashIndex[rec.hash] = rec.id;
       const logs = [...p.logs, ...withIds];
-      const fields = inferSchema(logs.filter((l) => l.logSetId === setId));
-      let views = p.views;
-      const hasView = views.some((v) => v.logSetId === setId);
-      if (!hasView) {
-        views = [
-          ...views,
-          {
-            id: nanoid(),
-            name: logSets.find((s) => s.id === setId)?.name ?? "Imported",
-            logSetId: setId,
-            columns: suggestColumns(fields, logs.filter((l) => l.logSetId === setId).length),
-            filter: emptyFilter(),
-          },
-        ];
-      } else {
-        views = views.map((v) =>
-          v.logSetId === setId && v.columns.length === 0
-            ? { ...v, columns: suggestColumns(fields, logs.filter((l) => l.logSetId === setId).length) }
-            : v,
-        );
-      }
-      const view = views.find((v) => v.logSetId === setId);
-      const next = { ...p, logSets, logs, hashIndex, views };
-      return view ? upsertTab(next, { id: nanoid(), kind: "browser", viewId: view.id }) : next;
+      const setLogs = logs.filter((l) => l.logSetId === setId);
+      const fields = inferSchema(setLogs);
+      const suggested = suggestColumns(fields, setLogs.length);
+      const nextSets = logSets.map((s) =>
+        s.id === setId && s.columns.length === 0 ? { ...s, columns: suggested } : s,
+      );
+      return upsertTab(
+        { ...p, logSets: nextSets, logs, hashIndex },
+        { id: nanoid(), kind: "source", logSetId: setId },
+      );
     });
     return { added: withIds.length, duplicates, logSetId: setId };
   },

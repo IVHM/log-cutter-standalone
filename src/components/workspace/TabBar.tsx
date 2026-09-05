@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, LayoutDashboard, Settings, X } from "lucide-react";
+import { FolderClosed, Funnel, LayoutDashboard, Settings, X } from "lucide-react";
 import { useProjectStore } from "@/lib/store";
 import type { Tab } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,7 @@ export function TabBar() {
     <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-zinc-800 bg-zinc-950">
       {project.openTabs.length === 0 ? (
         <div className="flex items-center px-3 text-[12px] text-zinc-500">
-          Open a canvas, view, or settings from the sidebar.
+          Open a canvas, source, view, or settings from the sidebar.
         </div>
       ) : null}
       {project.openTabs.map((tab) => (
@@ -53,7 +53,8 @@ export function TabBar() {
 
 function TabIcon({ tab }: { tab: Tab }) {
   if (tab.kind === "canvas") return <LayoutDashboard className="size-3 shrink-0" />;
-  if (tab.kind === "browser") return <Database className="size-3 shrink-0" />;
+  if (tab.kind === "source") return <FolderClosed className="size-3 shrink-0" />;
+  if (tab.kind === "browser") return <Funnel className="size-3 shrink-0" />;
   return <Settings className="size-3 shrink-0" />;
 }
 
@@ -61,8 +62,11 @@ function tabTitle(project: NonNullable<ReturnType<typeof useProjectStore.getStat
   if (tab.kind === "canvas") {
     return project.canvases.find((c) => c.id === tab.canvasId)?.name ?? "Canvas";
   }
+  if (tab.kind === "source") {
+    return project.logSets.find((s) => s.id === tab.logSetId)?.name ?? "Source";
+  }
   if (tab.kind === "browser") {
-    return project.views.find((v) => v.id === tab.viewId)?.name ?? "Browser";
+    return project.views.find((v) => v.id === tab.viewId)?.name ?? "View";
   }
   return "Settings";
 }

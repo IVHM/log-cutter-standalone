@@ -2,11 +2,52 @@
   "name": "json-log-explorer",
   "version": "0.1.0",
   "private": true,
+  "author": "LogCutter",
+  "description": "Local-first workspace for investigating JSON logs",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev --port 43123 --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start --port 43123 --hostname 0.0.0.0",
+    "start": "node scripts/serve-static.cjs",
+    "desktop": "electron .",
+    "dist": "npm run build && electron-builder --win portable",
     "lint": "eslint"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "build": {
+    "appId": "dev.logcutter.app",
+    "productName": "LogCutter",
+    "npmRebuild": false,
+    "electronLanguages": ["en-US"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "!**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "out",
+        "to": "out"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "LogCutter.exe"
+    }
   },
   "dependencies": {
     "@xyflow/react": "^12.11.5",
@@ -33,6 +74,8 @@
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^44.1.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",

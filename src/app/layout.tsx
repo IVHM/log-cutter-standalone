@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "JSON Log Explorer",
+  title: "LogSplitter",
   description:
-    "Local-first workspace for importing JSON logs, browsing inferred schemas, and investigating events on a pan-able canvas.",
+    "A json/csv log explorer. Local-first workspace for importing logs, browsing inferred schemas, and investigating events on a pan-able canvas.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

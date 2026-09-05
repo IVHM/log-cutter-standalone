@@ -1,5 +1,4 @@
 import { nanoid } from "nanoid";
-import { emptyFilter } from "./filter";
 import { hashPayload, shapeIdOf } from "./hash";
 import { suggestColumns, inferSchema, suggestPins } from "./schema";
 import type { AppEdge, AppNode, BrowserView, Canvas, LogRecord, LogSet, Project } from "./types";
@@ -129,6 +128,9 @@ export async function buildSampleProject(): Promise<Project> {
     sourceFile: "sample-logs.jsonl",
     headerPaths: [...DEFAULT_HEADER_PATHS],
     headerColor: DEFAULT_HEADER_COLOR,
+    columns: [],
+    defaultPinnedPaths: ["ts", "level", "event"],
+    hiddenPaths: [],
   };
 
   const logs: LogRecord[] = [];
@@ -151,18 +153,13 @@ export async function buildSampleProject(): Promise<Project> {
   }
 
   const fields = inferSchema(logs);
-  const view: BrowserView = {
-    id: nanoid(),
-    name: "All logs",
-    logSetId: logSet.id,
-    columns: suggestColumns(fields, logs.length),
-    filter: emptyFilter(),
-  };
+  const columns = suggestColumns(fields, logs.length);
+  logSet.columns = columns;
   const errorView: BrowserView = {
     id: nanoid(),
     name: "Errors",
     logSetId: logSet.id,
-    columns: suggestColumns(fields, logs.length),
+    columns,
     filter: {
       kind: "group",
       join: "and",
@@ -245,10 +242,10 @@ export async function buildSampleProject(): Promise<Project> {
     kind: "canvas",
     canvasId: canvas.id,
   };
-  const browserTab: Project["openTabs"][number] = {
+  const sourceTab: Project["openTabs"][number] = {
     id: nanoid(),
-    kind: "browser",
-    viewId: view.id,
+    kind: "source",
+    logSetId: logSet.id,
   };
 
   return {
@@ -259,10 +256,10 @@ export async function buildSampleProject(): Promise<Project> {
     logSets: [logSet],
     logs,
     hashIndex,
-    views: [view, errorView],
+    views: [errorView],
     canvases: [canvas],
     settings: { ...DEFAULT_SETTINGS },
-    openTabs: [canvasTab, browserTab],
+    openTabs: [canvasTab, sourceTab],
     activeTabId: canvasTab.id,
     lastCanvasId: canvas.id,
   };

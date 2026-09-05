@@ -85,13 +85,26 @@ export function primaryType(field: SchemaField): JsonTypeName {
   return best;
 }
 
+const TYPE_ABBR: Record<JsonTypeName, string> = {
+  string: "str",
+  number: "num",
+  boolean: "bol",
+  object: "obj",
+  array: "arr",
+  null: "nul",
+};
+
 export function typeLabel(field: SchemaField): string {
   const present = (Object.entries(field.types) as [JsonTypeName, number][])
     .filter(([, n]) => n > 0)
-    .map(([t]) => t);
-  if (present.length === 0) return "unknown";
-  if (present.length === 1) return present[0];
+    .map(([t]) => TYPE_ABBR[t]);
+  if (present.length === 0) return "unk";
   return present.join(" | ");
+}
+
+export function coveragePercent(occurrences: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((occurrences / total) * 100);
 }
 
 const COMMON_PIN_NAMES = [

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { Pin } from "lucide-react";
 import { jsonType } from "@/lib/hash";
-import { formatScalar, isPinnedUnder, joinPath } from "@/lib/json-path";
+import { formatScalar, isHiddenPath, isPinnedUnder, joinPath } from "@/lib/json-path";
 import { cn } from "@/lib/utils";
 
 const TYPE_CLASS: Record<string, string> = {
@@ -20,6 +20,7 @@ type Props = {
   path?: string;
   pinnedPaths: string[];
   collapsedPaths: string[];
+  hiddenPaths?: string[];
   onTogglePin: (path: string) => void;
   onToggleCollapse: (path: string) => void;
   depth?: number;
@@ -30,10 +31,13 @@ export function JsonTree({
   path = "",
   pinnedPaths,
   collapsedPaths,
+  hiddenPaths = [],
   onTogglePin,
   onToggleCollapse,
   depth = 0,
 }: Props) {
+  if (path && isHiddenPath(path, hiddenPaths)) return null;
+
   const type = jsonType(value);
   const collapsed = path !== "" && collapsedPaths.includes(path);
 
@@ -57,9 +61,10 @@ export function JsonTree({
     ? value.map((item, i) => [i, item])
     : Object.entries(value as Record<string, unknown>);
 
-  const visible = collapsed
+  const visible = (collapsed
     ? entries.filter(([key]) => isPinnedUnder(joinPath(path, key), pinnedPaths))
-    : entries;
+    : entries
+  ).filter(([key]) => !isHiddenPath(joinPath(path, key), hiddenPaths));
 
   return (
     <div>
@@ -88,6 +93,7 @@ export function JsonTree({
             path={joinPath(path, key)}
             pinnedPaths={pinnedPaths}
             collapsedPaths={collapsedPaths}
+            hiddenPaths={hiddenPaths}
             onTogglePin={onTogglePin}
             onToggleCollapse={onToggleCollapse}
             depth={path === "" ? depth : depth + 1}

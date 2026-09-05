@@ -57,7 +57,12 @@ export function AppShell() {
       }}
     >
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-3">
-        <span className="font-mono text-[11px] tracking-wider text-zinc-500">JSON LOG EXPLORER</span>
+        <div className="flex min-w-0 items-baseline gap-2.5">
+          <span className="font-sans text-[13px] font-semibold tracking-tight text-zinc-200">
+            LogSplitter
+          </span>
+          <span className="truncate text-[10px] text-zinc-500">A json/csv log explorer</span>
+        </div>
         <span className="text-[11px] text-zinc-600">
           {saving ? "Saving…" : dirty ? "Unsaved" : project ? "Saved locally" : ""}
         </span>
@@ -72,6 +77,8 @@ export function AppShell() {
             <main className="min-h-0 flex-1 bg-zinc-900">
               {active?.kind === "canvas" ? (
                 <CanvasView key={active.canvasId} canvasId={active.canvasId} />
+              ) : active?.kind === "source" ? (
+                <LogBrowser key={active.logSetId} logSetId={active.logSetId} />
               ) : active?.kind === "browser" ? (
                 <LogBrowser key={active.viewId} viewId={active.viewId} />
               ) : active?.kind === "settings" ? (

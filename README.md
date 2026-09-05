@@ -16,6 +16,23 @@ npm run build
 npm start
 ```
 
+## Standalone desktop app
+
+Build a portable Windows exe (no Node install required to run it):
+
+```bash
+npm run dist
+```
+
+The file is `dist/LogCutter.exe`. Double-click it to open LogCutter in its own window. Data still lives in IndexedDB on this machine.
+
+To try the desktop window without packaging:
+
+```bash
+npm run build
+npm run desktop
+```
+
 There is no backend and no account. Duplicate logs are skipped with a SHA-256 hash map of canonical JSON, which is cheaper than storing a second copy of the payload.
 
 ## Workflow
