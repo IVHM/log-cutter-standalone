@@ -1,0 +1,513 @@
+{
+  "eventId": "evt_deep_001",
+  "eventType": "order.lifecycle.snapshot",
+  "emittedAt": "2025-03-18T14:22:11.482Z",
+  "schemaVersion": "2025.03.1",
+  "trace": {
+    "traceId": "trc_9f3c2a81b0e4",
+    "spanId": "spn_77aa01",
+    "parentSpanId": "spn_12ff90",
+    "baggage": {
+      "tenant": "acme-retail",
+      "region": "us-west-2",
+      "flags": {
+        "sampled": true,
+        "debug": false,
+        "experimental": {
+          "featureGates": ["nested-pricing-v2", "address-v3"],
+          "rollout": {
+            "percent": 25,
+            "cohort": "beta-orders",
+            "overrides": {
+              "customer.customerId": {
+                "5678": true,
+                "1201": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "actor": {
+    "type": "user",
+    "user": {
+      "customerId": 5678,
+      "profile": {
+        "name": {
+          "given": "Michael",
+          "family": "Chen",
+          "display": "Michael Chen"
+        },
+        "contact": {
+          "email": {
+            "primary": "michael.chen@example.com",
+            "verified": true,
+            "history": [
+              {
+                "email": "m.chen@oldmail.example",
+                "changedAt": "2023-11-02T09:00:00Z",
+                "reason": "user_update"
+              }
+            ]
+          },
+          "phone": {
+            "primary": {
+              "countryCode": "1",
+              "number": "2065550142",
+              "smsOptIn": true
+            }
+          }
+        },
+        "preferences": {
+          "locale": "en-US",
+          "currency": "USD",
+          "notifications": {
+            "channels": {
+              "email": { "orderUpdates": true, "marketing": false },
+              "push": { "orderUpdates": true, "marketing": false },
+              "sms": { "orderUpdates": false }
+            }
+          }
+        }
+      },
+      "auth": {
+        "subject": "auth0|cus_5678",
+        "roles": ["customer", "loyalty.silver"],
+        "session": {
+          "sessionId": "sess_ab12cd",
+          "ip": "203.0.113.44",
+          "userAgent": {
+            "raw": "Mozilla/5.0",
+            "device": { "type": "desktop", "os": "Windows", "osVersion": "10" },
+            "client": { "name": "Chrome", "version": "122.0.0" }
+          }
+        }
+      }
+    }
+  },
+  "order": {
+    "orderId": "ORD-2025-12345",
+    "orderDate": "2025-01-15T10:30:00Z",
+    "status": {
+      "current": "processing",
+      "history": [
+        {
+          "status": "created",
+          "at": "2025-01-15T10:30:00Z",
+          "by": { "system": "orders-api", "reasonCode": "checkout.completed" }
+        },
+        {
+          "status": "payment_authorized",
+          "at": "2025-01-15T10:30:04Z",
+          "by": { "system": "payments", "reasonCode": "auth.ok" }
+        },
+        {
+          "status": "processing",
+          "at": "2025-01-15T10:30:08Z",
+          "by": { "system": "fulfillment", "reasonCode": "queue.accepted" }
+        }
+      ]
+    },
+    "customer": {
+      "customerId": 5678,
+      "name": "Michael Chen",
+      "email": "michael.chen@example.com",
+      "loyalty": {
+        "tier": "silver",
+        "points": {
+          "balance": 4200,
+          "pending": 113,
+          "ledger": [
+            {
+              "entryId": "pts_901",
+              "delta": 113,
+              "reason": "order_accrual",
+              "meta": { "orderId": "ORD-2025-12345", "rate": 1.0 }
+            }
+          ]
+        }
+      }
+    },
+    "items": [
+      {
+        "lineId": "line_1",
+        "productId": "PROD-001",
+        "name": "Wireless Mouse",
+        "quantity": 2,
+        "price": 29.99,
+        "catalog": {
+          "category": {
+            "path": ["Electronics", "Peripherals", "Mice"],
+            "attributes": {
+              "brand": "LogiTech-ish",
+              "sku": {
+                "merchant": "PROD-001",
+                "gtin": "00012345678905",
+                "variants": {
+                  "color": "black",
+                  "connectivity": {
+                    "type": "wireless",
+                    "protocols": ["bluetooth", "2.4ghz"],
+                    "dongle": { "included": true, "sku": "DNG-001" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pricing": {
+          "unit": {
+            "list": 34.99,
+            "sale": 29.99,
+            "currency": "USD"
+          },
+          "discounts": [
+            {
+              "code": "PERIPH10",
+              "type": "percent",
+              "amount": 5.0,
+              "appliedBy": {
+                "engine": "promotions-v3",
+                "rule": {
+                  "id": "rule_88",
+                  "stackable": false,
+                  "constraints": {
+                    "minQty": 1,
+                    "categories": ["Peripherals"]
+                  }
+                }
+              }
+            }
+          ],
+          "tax": {
+            "jurisdiction": {
+              "country": "US",
+              "region": "WA",
+              "local": { "city": "Seattle", "district": "King" }
+            },
+            "lines": [
+              { "name": "state", "rate": 0.065, "amount": 3.9 },
+              { "name": "local", "rate": 0.025, "amount": 1.5 }
+            ]
+          }
+        },
+        "fulfillment": {
+          "warehouse": {
+            "id": "wh_sea_01",
+            "location": {
+              "geo": { "lat": 47.6062, "lon": -122.3321 },
+              "address": {
+                "street": "1 Warehouse Way",
+                "city": "Seattle",
+                "state": "WA",
+                "zipCode": "98134"
+              }
+            }
+          },
+          "allocation": {
+            "status": "reserved",
+            "bins": [
+              {
+                "bin": "A-12-4",
+                "qty": 2,
+                "pick": { "priority": 2, "route": ["A", "A-12", "A-12-4"] }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "lineId": "line_2",
+        "productId": "PROD-002",
+        "name": "USB Cable",
+        "quantity": 3,
+        "price": 9.99,
+        "catalog": {
+          "category": {
+            "path": ["Electronics", "Cables", "USB"],
+            "attributes": {
+              "brand": "Generic",
+              "sku": {
+                "merchant": "PROD-002",
+                "gtin": "00012345678912",
+                "variants": {
+                  "lengthMeters": 2,
+                  "connectors": {
+                    "ends": [
+                      { "type": "USB-A", "gender": "male" },
+                      { "type": "USB-C", "gender": "male" }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pricing": {
+          "unit": { "list": 9.99, "sale": 9.99, "currency": "USD" },
+          "discounts": [],
+          "tax": {
+            "jurisdiction": {
+              "country": "US",
+              "region": "WA",
+              "local": { "city": "Seattle", "district": "King" }
+            },
+            "lines": [
+              { "name": "state", "rate": 0.065, "amount": 1.95 },
+              { "name": "local", "rate": 0.025, "amount": 0.75 }
+            ]
+          }
+        },
+        "fulfillment": {
+          "warehouse": {
+            "id": "wh_sea_01",
+            "location": {
+              "geo": { "lat": 47.6062, "lon": -122.3321 },
+              "address": {
+                "street": "1 Warehouse Way",
+                "city": "Seattle",
+                "state": "WA",
+                "zipCode": "98134"
+              }
+            }
+          },
+          "allocation": {
+            "status": "reserved",
+            "bins": [
+              {
+                "bin": "C-02-9",
+                "qty": 3,
+                "pick": { "priority": 5, "route": ["C", "C-02", "C-02-9"] }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "shipping": {
+      "method": "Express",
+      "cost": 15.0,
+      "carrier": {
+        "name": "FastParcel",
+        "serviceCode": "FP-EXP",
+        "eta": {
+          "minDays": 1,
+          "maxDays": 2,
+          "deliveryWindow": {
+            "startLocal": "2025-01-16T09:00:00-08:00",
+            "endLocal": "2025-01-16T18:00:00-08:00"
+          }
+        }
+      },
+      "address": {
+        "street": "789 Pine Street",
+        "city": "Seattle",
+        "state": "WA",
+        "zipCode": "98101",
+        "geo": {
+          "lat": 47.6129,
+          "lon": -122.3356,
+          "accuracy": "rooftop",
+          "provider": {
+            "name": "GeoKit",
+            "response": {
+              "confidence": 0.94,
+              "components": {
+                "number": "789",
+                "street": "Pine",
+                "suffix": "Street"
+              }
+            }
+          }
+        },
+        "validation": {
+          "status": "verified",
+          "checks": [
+            { "name": "avs", "passed": true },
+            { "name": "deliverability", "passed": true, "detail": { "dpv": "Y" } }
+          ]
+        }
+      },
+      "instructions": {
+        "leaveAtDoor": true,
+        "notes": "Ring doorbell twice",
+        "access": {
+          "building": { "codeRequired": false, "gate": null },
+          "safePlace": { "preferred": "porch", "alternates": ["garage", "neighbor"] }
+        }
+      }
+    },
+    "payment": {
+      "method": "credit_card",
+      "last4": "4242",
+      "status": "paid",
+      "processor": {
+        "name": "Stripeish",
+        "charge": {
+          "chargeId": "ch_1Ndeepdemo",
+          "amount": 113.05,
+          "currency": "usd",
+          "outcome": {
+            "networkStatus": "approved_by_network",
+            "risk": {
+              "score": 12,
+              "level": "normal",
+              "rules": [
+                { "id": "risk_ip_country_match", "triggered": false },
+                { "id": "risk_velocity", "triggered": false }
+              ]
+            },
+            "threeDSecure": {
+              "result": "authenticated",
+              "version": "2.2.0",
+              "eci": "05"
+            }
+          },
+          "card": {
+            "brand": "visa",
+            "funding": "credit",
+            "country": "US",
+            "checks": {
+              "cvc": "pass",
+              "addressLine1": "pass",
+              "addressPostalCode": "pass"
+            }
+          }
+        }
+      }
+    },
+    "totals": {
+      "subtotal": 89.95,
+      "tax": 8.1,
+      "shipping": 15.0,
+      "total": 113.05,
+      "breakdown": {
+        "items": [
+          {
+            "lineId": "line_1",
+            "extended": 59.98,
+            "tax": 5.4,
+            "components": {
+              "list": 69.98,
+              "discount": 10.0,
+              "net": 59.98
+            }
+          },
+          {
+            "lineId": "line_2",
+            "extended": 29.97,
+            "tax": 2.7,
+            "components": {
+              "list": 29.97,
+              "discount": 0,
+              "net": 29.97
+            }
+          }
+        ],
+        "fees": {
+          "shipping": {
+            "base": 12.0,
+            "fuel": 2.0,
+            "rural": 1.0,
+            "waived": false
+          }
+        }
+      }
+    }
+  },
+  "integrations": {
+    "downstream": [
+      {
+        "system": "warehouse",
+        "request": {
+          "idempotencyKey": "wh_ORD-2025-12345",
+          "payload": {
+            "action": "reserve",
+            "lines": [
+              { "sku": "PROD-001", "qty": 2 },
+              { "sku": "PROD-002", "qty": 3 }
+            ]
+          }
+        },
+        "response": {
+          "ok": true,
+          "body": {
+            "reservationId": "rsv_55c",
+            "expiresAt": "2025-01-15T11:30:00Z",
+            "details": {
+              "allocations": {
+                "PROD-001": { "wh": "wh_sea_01", "bin": "A-12-4" },
+                "PROD-002": { "wh": "wh_sea_01", "bin": "C-02-9" }
+              }
+            }
+          }
+        }
+      },
+      {
+        "system": "email",
+        "request": {
+          "template": "order_confirmation_v4",
+          "to": ["michael.chen@example.com"],
+          "data": {
+            "orderId": "ORD-2025-12345",
+            "deepLink": {
+              "web": "https://shop.example.com/orders/ORD-2025-12345",
+              "app": {
+                "ios": "acmeshop://orders/ORD-2025-12345",
+                "android": "acmeshop://orders/ORD-2025-12345"
+              }
+            }
+          }
+        },
+        "response": {
+          "ok": true,
+          "body": { "messageId": "msg_91af", "provider": "Postbox" }
+        }
+      }
+    ],
+    "webhooks": {
+      "delivered": [
+        {
+          "url": "https://partner.example.com/hooks/orders",
+          "attempt": 1,
+          "statusCode": 200,
+          "latencyMs": 148,
+          "signature": {
+            "alg": "hmac-sha256",
+            "valid": true,
+            "headers": {
+              "x-signature": "sha256=deadbeef",
+              "x-timestamp": "1736941808"
+            }
+          }
+        }
+      ],
+      "pending": []
+    }
+  },
+  "diagnostics": {
+    "errors": [],
+    "warnings": [
+      {
+        "code": "PROMO_PARTIAL_STACK",
+        "message": "Secondary promo skipped due to non-stackable rule",
+        "context": {
+          "ruleId": "rule_88",
+          "skipped": ["FREESHIP"],
+          "path": {
+            "order": "order.items[0].pricing.discounts"
+          }
+        }
+      }
+    ],
+    "timing": {
+      "totalMs": 412,
+      "spans": {
+        "validate": { "ms": 12, "children": { "schema": { "ms": 4 }, "inventory": { "ms": 8 } } },
+        "pay": { "ms": 220, "children": { "tokenize": { "ms": 210 }, "persist": { "ms": 10 } } },
+        "fulfill": { "ms": 180, "children": { "reserve": { "ms": 140 }, "notify": { "ms": 40 } } }
+      }
+    }
+  }
+}
