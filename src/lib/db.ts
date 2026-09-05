@@ -1,7 +1,18 @@
 import Dexie, { type Table } from "dexie";
-import { fieldsForLog, hashIndexFromLogs, noteFieldRow } from "./fields";
+import {
+  addLogToPostingSets,
+  addNoteToPostingSets,
+  hashIndexFromLogs,
+  NOTE_FIELD_PATH,
+  postingsToSets,
+  removeLogFromPath,
+  removeLogsFromPostingSets,
+  setsToPostings,
+  sourceFieldIndexId,
+  type FieldPostingSets,
+} from "./fields";
 import { inferSchema } from "./schema";
-import type { LogFieldRow, LogRecord, LogRow, Project, ProjectDoc } from "./types";
+import type { LogRecord, LogRow, Project, ProjectDoc, SourceFieldIndexRow } from "./types";
 import { SCHEMA_VERSION } from "./types";
 
 export type ProjectSummary = Pick<Project, "id" | "name" | "updatedAt" | "createdAt">;
@@ -22,19 +33,19 @@ type LegacyStored = ProjectDoc & {
 type MemoryState = {
   docs: Map<string, ProjectDoc>;
   logs: Map<string, LogRow>;
-  fields: LogFieldRow[];
+  indexes: Map<string, SourceFieldIndexRow>;
   lastId: string | null;
 };
 
 const memory: MemoryState = {
   docs: new Map(),
   logs: new Map(),
-  fields: [],
+  indexes: new Map(),
   lastId: null,
 };
 
 const WRITE_CHUNK = 400;
-const INDEX_CHUNK = 80;
+const INDEX_CHUNK = 400;
 
 let mode: "idb" | "memory" | "unknown" = "unknown";
 let dexie: LogExplorerDB | null = null;
@@ -44,7 +55,7 @@ class LogExplorerDB extends Dexie {
   projects!: Table<ProjectDoc, string>;
   meta!: Table<{ key: string; value: string }, string>;
   logs!: Table<LogRow, string>;
-  logFields!: Table<LogFieldRow, string>;
+  sourceFieldIndex!: Table<SourceFieldIndexRow, string>;
 
   constructor() {
     super("json-log-explorer");
@@ -73,6 +84,15 @@ class LogExplorerDB extends Dexie {
       logFields:
         "id, projectId, [projectId+logId], [projectId+sourceId], [projectId+sourceId+path+valueKey]",
     });
+    this.version(5)
+      .stores({
+        projects: "id, name, updatedAt",
+        meta: "key",
+        logs: "id, projectId, sourceId, hash, [projectId+sourceId], [projectId+hash], importedAt",
+        logFields:
+          "id, projectId, [projectId+logId], [projectId+sourceId], [projectId+sourceId+path+valueKey]",
+        sourceFieldIndex: "id, projectId",
+      });
   }
 }
 
@@ -132,9 +152,10 @@ async function initBackend(): Promise<"idb" | "memory"> {
   }
   try {
     dexie = new LogExplorerDB();
-    await withTimeout(dexie.open(), 2000, "Dexie.open");
+    await withTimeout(dexie.open(), 180000, "Dexie.open");
     mode = "idb";
-  } catch {
+  } catch (err) {
+    console.warn("IndexedDB open failed; using in-memory storage.", err);
     dexie = null;
     mode = "memory";
   }
@@ -222,20 +243,24 @@ function memClearProjectData(projectId: string) {
   for (const [id, row] of [...memory.logs.entries()]) {
     if (row.projectId === projectId) memory.logs.delete(id);
   }
-  memory.fields = memory.fields.filter((f) => f.projectId !== projectId);
+  for (const [id, row] of [...memory.indexes.entries()]) {
+    if (row.projectId === projectId) memory.indexes.delete(id);
+  }
 }
 
 function memDeleteLogs(ids: string[]) {
-  const drop = new Set(ids);
   for (const id of ids) memory.logs.delete(id);
-  memory.fields = memory.fields.filter((f) => !drop.has(f.logId));
+}
+
+function memDeleteSourceIndex(projectId: string, sourceId: string) {
+  memory.indexes.delete(sourceFieldIndexId(projectId, sourceId));
 }
 
 async function idbClearProjectData(projectId: string): Promise<void> {
   if (!dexie) return;
-  await dexie.transaction("rw", dexie.logs, dexie.logFields, async () => {
+  await dexie.transaction("rw", dexie.logs, dexie.sourceFieldIndex, async () => {
     await dexie!.logs.where("projectId").equals(projectId).delete();
-    await dexie!.logFields.where("projectId").equals(projectId).delete();
+    await dexie!.sourceFieldIndex.where("projectId").equals(projectId).delete();
   });
 }
 
@@ -250,24 +275,70 @@ async function writeLogPayloadChunk(projectId: string, logs: LogRecord[]): Promi
   }
 }
 
-function rememberFields(fields: LogFieldRow[]) {
-  if (mode !== "idb") memory.fields.push(...fields);
+function rememberIndex(row: SourceFieldIndexRow) {
+  memory.indexes.set(row.id, row);
 }
 
-async function writeFieldIndexChunk(projectId: string, logs: LogRecord[]): Promise<void> {
-  if (logs.length === 0) return;
-  const fields = logs.flatMap((log) => fieldsForLog(projectId, log));
-  if (fields.length === 0) return;
-  if (mode !== "idb" || !dexie) {
-    memory.fields.push(...fields);
-    return;
+async function getSourceIndexRow(
+  projectId: string,
+  sourceId: string,
+): Promise<SourceFieldIndexRow | undefined> {
+  const id = sourceFieldIndexId(projectId, sourceId);
+  const cached = memory.indexes.get(id);
+  if (cached) return cached;
+  if (mode === "idb" && dexie) {
+    try {
+      const row = await dexie.sourceFieldIndex.get(id);
+      if (row) rememberIndex(row);
+      return row;
+    } catch {
+      mode = "memory";
+    }
   }
+  return undefined;
+}
+
+async function loadPostingSets(projectId: string, sourceId: string): Promise<FieldPostingSets> {
+  return postingsToSets((await getSourceIndexRow(projectId, sourceId))?.postings);
+}
+
+async function savePostingSets(
+  projectId: string,
+  sourceId: string,
+  sets: FieldPostingSets,
+): Promise<void> {
+  const row: SourceFieldIndexRow = {
+    id: sourceFieldIndexId(projectId, sourceId),
+    projectId,
+    sourceId,
+    postings: setsToPostings(sets),
+  };
+  rememberIndex(row);
+  if (mode !== "idb" || !dexie) return;
   try {
-    await dexie.logFields.bulkPut(fields);
+    await dexie.sourceFieldIndex.put(row);
   } catch {
     mode = "memory";
-    rememberFields(fields);
   }
+}
+
+async function indexSourceLogs(
+  projectId: string,
+  sourceId: string,
+  logs: LogRecord[],
+  onProgress?: (progress: MigrateProgress) => void,
+  progressOffset = 0,
+  progressTotal?: number,
+): Promise<void> {
+  const total = progressTotal ?? logs.length;
+  const sets = await loadPostingSets(projectId, sourceId);
+  for (let i = 0; i < logs.length; i += INDEX_CHUNK) {
+    const slice = logs.slice(i, i + INDEX_CHUNK);
+    for (const log of slice) addLogToPostingSets(sets, log);
+    onProgress?.({ done: Math.min(progressOffset + i + slice.length, total), total });
+    await yieldUi();
+  }
+  await savePostingSets(projectId, sourceId, sets);
 }
 
 async function writeLogsChunked(
@@ -281,11 +352,7 @@ async function writeLogsChunked(
     await writeLogPayloadChunk(projectId, logs.slice(i, i + WRITE_CHUNK));
     onProgress?.({ done: Math.min(i + WRITE_CHUNK, total), total });
   }
-  for (let i = 0; i < logs.length; i += INDEX_CHUNK) {
-    await writeFieldIndexChunk(projectId, logs.slice(i, i + INDEX_CHUNK));
-    onProgress?.({ done: Math.min(i + INDEX_CHUNK, total), total });
-    await yieldUi();
-  }
+  await indexLogFields(projectId, logs, onProgress);
   if (total === 0) onProgress?.({ done: 0, total: 0 });
 }
 
@@ -359,6 +426,20 @@ function projectFromMemory(id: string): Project | undefined {
   return assemble(doc, memLogsForProject(id).map(fromLogRow));
 }
 
+async function withMissingPostingIndex(project: Project): Promise<Project> {
+  let changed = false;
+  const logSets = await Promise.all(
+    project.logSets.map(async (source) => {
+      if ((source.logCount ?? 0) === 0) return source;
+      const row = await getSourceIndexRow(project.id, source.id);
+      if (row) return source;
+      changed = true;
+      return { ...source, indexedCount: 0 };
+    }),
+  );
+  return changed ? { ...project, logSets } : project;
+}
+
 export async function getProject(
   id: string,
   onProgress?: (progress: MigrateProgress) => void,
@@ -370,7 +451,7 @@ export async function getProject(
     if (!raw) return undefined;
     if (needsMigrate(raw)) return await migrateV1ToV2b(raw, onProgress);
     const rows = await dexie.logs.where("projectId").equals(id).toArray();
-    const project = assemble(raw, rows.map(fromLogRow));
+    const project = await withMissingPostingIndex(assemble(raw, rows.map(fromLogRow)));
     memory.docs.set(raw.id, toProjectDoc(project));
     for (const row of rows) memory.logs.set(row.id, row);
     return project;
@@ -427,7 +508,7 @@ export async function appendLogs(projectId: string, logs: LogRecord[]): Promise<
   }
 }
 
-/** Write logFields for already-stored logs. Safe to repeat (deterministic ids upsert). */
+/** Merge logs into the per-source posting-list index. Idempotent (Sets). */
 export async function indexLogFields(
   projectId: string,
   logs: LogRecord[],
@@ -438,12 +519,18 @@ export async function indexLogFields(
     return;
   }
   await ensureBackend();
+  const bySource = new Map<string, LogRecord[]>();
+  for (const log of logs) {
+    const list = bySource.get(log.logSetId);
+    if (list) list.push(log);
+    else bySource.set(log.logSetId, [log]);
+  }
   const total = logs.length;
+  let done = 0;
   onProgress?.({ done: 0, total });
-  for (let i = 0; i < logs.length; i += INDEX_CHUNK) {
-    await writeFieldIndexChunk(projectId, logs.slice(i, i + INDEX_CHUNK));
-    onProgress?.({ done: Math.min(i + INDEX_CHUNK, total), total });
-    await yieldUi();
+  for (const [sourceId, sourceLogs] of bySource) {
+    await indexSourceLogs(projectId, sourceId, sourceLogs, onProgress, done, total);
+    done += sourceLogs.length;
   }
 }
 
@@ -488,18 +575,47 @@ export async function getLogsForSource(projectId: string, sourceId: string): Pro
 
 export async function deleteLogs(projectId: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
+  await ensureBackend();
+  const missing = ids.filter((id) => !memory.logs.has(id));
+  if (missing.length > 0 && mode === "idb" && dexie) {
+    try {
+      const rows = await dexie.logs.bulkGet(missing);
+      for (const row of rows) if (row) memory.logs.set(row.id, row);
+    } catch {
+      /* look up whatever we have */
+    }
+  }
+  const bySource = new Map<string, Set<string>>();
+  for (const id of ids) {
+    const sourceId = memory.logs.get(id)?.sourceId;
+    if (!sourceId) continue;
+    const group = bySource.get(sourceId);
+    if (group) group.add(id);
+    else bySource.set(sourceId, new Set([id]));
+  }
   memDeleteLogs(ids);
   try {
-    const backend = await ensureBackend();
-    if (backend === "memory" || !dexie) return;
-    await dexie.transaction("rw", dexie.logs, dexie.logFields, async () => {
-      await dexie!.logs.bulkDelete(ids);
-      for (const id of ids) {
-        await dexie!.logFields.where("[projectId+logId]").equals([projectId, id]).delete();
+    if (mode === "memory" || !dexie) {
+      for (const [sourceId, logIds] of bySource) {
+        const sets = await loadPostingSets(projectId, sourceId);
+        removeLogsFromPostingSets(sets, logIds);
+        await savePostingSets(projectId, sourceId, sets);
       }
-    });
+      return;
+    }
+    await dexie.logs.bulkDelete(ids);
+    for (const [sourceId, logIds] of bySource) {
+      const sets = await loadPostingSets(projectId, sourceId);
+      removeLogsFromPostingSets(sets, logIds);
+      await savePostingSets(projectId, sourceId, sets);
+    }
   } catch {
     mode = "memory";
+    for (const [sourceId, logIds] of bySource) {
+      const sets = await loadPostingSets(projectId, sourceId);
+      removeLogsFromPostingSets(sets, logIds);
+      await savePostingSets(projectId, sourceId, sets);
+    }
   }
 }
 
@@ -508,12 +624,13 @@ export async function deleteLogsForSource(projectId: string, sourceId: string): 
     .filter((row) => row.sourceId === sourceId)
     .map((row) => row.id);
   memDeleteLogs(ids);
+  memDeleteSourceIndex(projectId, sourceId);
   try {
     const backend = await ensureBackend();
     if (backend === "memory" || !dexie) return;
-    await dexie.transaction("rw", dexie.logs, dexie.logFields, async () => {
+    await dexie.transaction("rw", dexie.logs, dexie.sourceFieldIndex, async () => {
       await dexie!.logs.where("[projectId+sourceId]").equals([projectId, sourceId]).delete();
-      await dexie!.logFields.where("[projectId+sourceId]").equals([projectId, sourceId]).delete();
+      await dexie!.sourceFieldIndex.delete(sourceFieldIndexId(projectId, sourceId));
     });
   } catch {
     mode = "memory";
@@ -522,23 +639,20 @@ export async function deleteLogsForSource(projectId: string, sourceId: string): 
 
 export async function putLogNote(projectId: string, log: LogRecord): Promise<void> {
   const row = toLogRow(projectId, log);
-  const note = noteFieldRow(projectId, log);
   memory.logs.set(row.id, row);
   try {
     const backend = await ensureBackend();
-    if (backend === "memory" || !dexie) {
-      memory.fields = memory.fields.filter((f) => !(f.logId === log.id && f.kind === "note"));
-      if (note) memory.fields.push(note);
-      return;
-    }
-    await dexie.logs.put(row);
-    const existing = await dexie.logFields.where("[projectId+logId]").equals([projectId, log.id]).toArray();
-    await dexie.logFields.bulkDelete(existing.filter((f) => f.kind === "note").map((f) => f.id));
-    if (note) await dexie.logFields.put(note);
+    if (backend === "idb" && dexie) await dexie.logs.put(row);
+    const sets = await loadPostingSets(projectId, log.logSetId);
+    removeLogFromPath(sets, log.id, NOTE_FIELD_PATH);
+    if (log.note) addNoteToPostingSets(sets, log.id, log.note);
+    await savePostingSets(projectId, log.logSetId, sets);
   } catch {
     mode = "memory";
-    memory.fields = memory.fields.filter((f) => !(f.logId === log.id && f.kind === "note"));
-    if (note) memory.fields.push(note);
+    const sets = await loadPostingSets(projectId, log.logSetId);
+    removeLogFromPath(sets, log.id, NOTE_FIELD_PATH);
+    if (log.note) addNoteToPostingSets(sets, log.id, log.note);
+    await savePostingSets(projectId, log.logSetId, sets);
   }
 }
 
@@ -549,10 +663,10 @@ export async function deleteProject(id: string): Promise<void> {
   try {
     const backend = await ensureBackend();
     if (backend === "memory" || !dexie) return;
-    await dexie.transaction("rw", dexie.projects, dexie.logs, dexie.logFields, async () => {
+    await dexie.transaction("rw", dexie.projects, dexie.logs, dexie.sourceFieldIndex, async () => {
       await dexie!.projects.delete(id);
       await dexie!.logs.where("projectId").equals(id).delete();
-      await dexie!.logFields.where("projectId").equals(id).delete();
+      await dexie!.sourceFieldIndex.where("projectId").equals(id).delete();
     });
   } catch {
     mode = "memory";
@@ -587,7 +701,7 @@ export async function setLastProjectId(id: string | null): Promise<void> {
 }
 
 /**
- * B1: exact same path + valueKey in one source, via logFields (not a full log scan).
+ * Exact same path + valueKey in one source, via the per-source posting list.
  * Results are unique logs, newest importedAt first.
  */
 export async function findLogsBySameValue(opts: {
@@ -597,42 +711,9 @@ export async function findLogsBySameValue(opts: {
   valueKey: string;
 }): Promise<LogRecord[]> {
   const { projectId, sourceId, path, valueKey } = opts;
-  const logIds = new Set<string>();
-  try {
-    const backend = await ensureBackend();
-    if (backend === "memory" || !dexie) {
-      for (const field of memory.fields) {
-        if (
-          field.projectId === projectId &&
-          field.sourceId === sourceId &&
-          field.path === path &&
-          field.valueKey === valueKey
-        ) {
-          logIds.add(field.logId);
-        }
-      }
-    } else {
-      const matches = await dexie.logFields
-        .where("[projectId+sourceId+path+valueKey]")
-        .equals([projectId, sourceId, path, valueKey])
-        .toArray();
-      for (const field of matches) logIds.add(field.logId);
-    }
-  } catch {
-    mode = "memory";
-    for (const field of memory.fields) {
-      if (
-        field.projectId === projectId &&
-        field.sourceId === sourceId &&
-        field.path === path &&
-        field.valueKey === valueKey
-      ) {
-        logIds.add(field.logId);
-      }
-    }
-  }
-
-  const ids = [...logIds];
+  await ensureBackend();
+  const row = await getSourceIndexRow(projectId, sourceId);
+  const ids = row?.postings[path]?.[valueKey] ?? [];
   if (ids.length === 0) return [];
   const rows = await getLogRowsByIds(ids);
   return rows

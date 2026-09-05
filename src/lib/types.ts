@@ -222,18 +222,12 @@ export type LogRow = {
   data: unknown;
 };
 
-export type LogFieldKind = "data" | "meta" | "note";
-
-export type LogFieldRow = {
+/** One IndexedDB row per source: path → valueKey → log ids. */
+export type SourceFieldIndexRow = {
   id: string;
   projectId: string;
   sourceId: string;
-  logId: string;
-  path: string;
-  kind: LogFieldKind;
-  jsonType: "null" | "boolean" | "number" | "string";
-  value: string | number | boolean | null;
-  valueKey: string;
+  postings: Record<string, Record<string, string[]>>;
 };
 
 export const DEFAULT_SETTINGS: ProjectSettings = {
