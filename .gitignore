@@ -24,6 +24,14 @@
 # local planning notes
 /notes/
 
+# stress-test fixtures, harness, evidence (see notes/20260905[Stress test protocol].md)
+/public/stress_test/
+/public/stress_test/**/*.js
+/public/stress_test/**/*.cjs
+/public/stress_test/harness.js
+/public/stress_test/bench-parse.cjs
+/public/stress_test/hot-users.cjs
+
 # misc
 .DS_Store
 *.pem
