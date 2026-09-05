@@ -19,6 +19,7 @@ import { findLogsBySameValue } from "@/lib/db";
 import { coveragePercent, schemaForSource, suggestColumns, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
 import type { LogRecord, SchemaField } from "@/lib/types";
+import { sourceIndexReady } from "@/lib/working-logs";
 
 const HIT_CAP = 2500;
 
@@ -67,6 +68,13 @@ export function DynamicLinkDialog({ open, onOpenChange, canvasId, target }: Prop
     return ids;
   }, [project, canvasId]);
 
+  const indexReady = useMemo(() => {
+    if (!project || !target) return true;
+    return Object.keys(target.bindings)
+      .filter((sourceId) => target.bindings[sourceId])
+      .every((sourceId) => sourceIndexReady(project.logSets.find((set) => set.id === sourceId)));
+  }, [project, target]);
+
   useEffect(() => {
     if (target) setShown(target);
   }, [target]);
@@ -82,6 +90,11 @@ export function DynamicLinkDialog({ open, onOpenChange, canvasId, target }: Prop
         }, 220);
         return () => window.clearTimeout(timer);
       }
+      return;
+    }
+    if (!indexReady) {
+      setTables([]);
+      setLoading(false);
       return;
     }
     let cancelled = false;
@@ -134,7 +147,7 @@ export function DynamicLinkDialog({ open, onOpenChange, canvasId, target }: Prop
     return () => {
       cancelled = true;
     };
-  }, [open, target, project, ensureWorkingLogs]);
+  }, [open, target, project, indexReady, ensureWorkingLogs]);
 
   const selectableSelected = [...selected].filter((id) => id !== shown?.originLogId);
   const toAddCount = selectableSelected.filter((id) => !onCanvas.has(id)).length;
@@ -200,7 +213,9 @@ export function DynamicLinkDialog({ open, onOpenChange, canvasId, target }: Prop
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
-          {loading ? (
+          {!indexReady ? (
+            <p className="px-3 py-8 text-center text-sm text-zinc-500">Building search index…</p>
+          ) : loading ? (
             <p className="px-3 py-8 text-center text-sm text-zinc-500">Searching field index…</p>
           ) : tables.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-zinc-500">No linked logs have that value.</p>

@@ -63,6 +63,11 @@ export type LogSet = {
   idFieldPaths: string[];
   /** Row count for this source (import updates this; avoids scanning project.logs). */
   logCount?: number;
+  /**
+   * How many of this source's logs have field-index rows.
+   * `undefined` means a pre-split project (treat as fully indexed).
+   */
+  indexedCount?: number;
 };
 
 export type IdLink = {

@@ -1,8 +1,11 @@
-import { nanoid } from "nanoid";
 import { jsonType } from "./hash";
 import { collectAtPath, formatCellValue, joinPath, toSchemaPath } from "./json-path";
 import { SCHEMA_MAX_ARRAY, SCHEMA_MAX_DEPTH } from "./schema";
 import type { LogFieldKind, LogFieldRow, LogRecord } from "./types";
+
+export function fieldRowId(logId: string, kind: LogFieldKind, path: string): string {
+  return `${logId}\u001f${kind}\u001f${path}`;
+}
 
 export function valueKey(value: string | number | boolean | null): string {
   if (value === null) return "null";
@@ -30,12 +33,13 @@ function leafRow(
 ): LogFieldRow | null {
   const leaf = asLeaf(value);
   if (!leaf || !path) return null;
+  const schemaPath = toSchemaPath(path);
   return {
-    id: nanoid(),
+    id: fieldRowId(log.id, kind, schemaPath),
     projectId,
     sourceId: log.logSetId,
     logId: log.id,
-    path: toSchemaPath(path),
+    path: schemaPath,
     kind,
     jsonType: leaf.jsonType,
     value: leaf.value,

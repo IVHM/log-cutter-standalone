@@ -19,29 +19,35 @@ export function canonicalize(value: unknown): string {
     .join(",")}}`;
 }
 
-function hex(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const hexes = HEX;
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 1) out += hexes[bytes[i]];
-  return out;
+const encoder = new TextEncoder();
+const HEX8 = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+function fnv1a32(bytes: Uint8Array, offset: number): number {
+  let hash = offset >>> 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash;
 }
 
-const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
-
-export async function sha256Hex(text: string): Promise<string> {
-  const encoded = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return hex(digest);
+function u32Hex(value: number): string {
+  return `${HEX8[(value >>> 24) & 255]}${HEX8[(value >>> 16) & 255]}${HEX8[(value >>> 8) & 255]}${HEX8[value & 255]}`;
 }
 
-export async function hashPayload(
+/** Two 32-bit FNV-1a mixes. Prefixed so it never collides with old SHA-256 hex. */
+function fnv1a64Hex(text: string): string {
+  const bytes = encoder.encode(text);
+  return u32Hex(fnv1a32(bytes, 2166136261)) + u32Hex(fnv1a32(bytes, 0x811c9dc5 ^ 0xa5a5a5a5));
+}
+
+export function hashPayload(
   data: unknown,
   meta?: Record<string, string>,
   includeMeta = false,
-): Promise<string> {
+): string {
   const body = includeMeta ? { data, meta: meta ?? {} } : data;
-  return sha256Hex(canonicalize(body));
+  return `f64:${fnv1a64Hex(canonicalize(body))}`;
 }
 
 /**

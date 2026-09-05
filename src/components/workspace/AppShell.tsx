@@ -6,6 +6,7 @@ import { LogBrowser } from "@/components/browser/LogBrowser";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { ImportDialog } from "@/components/import/ImportDialog";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { Button } from "@/components/ui/button";
 import { CanvasGroupView } from "@/components/workspace/CanvasGroupView";
 import { Sidebar } from "@/components/workspace/Sidebar";
 import { SourceGroupView } from "@/components/workspace/SourceGroupView";
@@ -21,6 +22,7 @@ export function AppShell() {
   const saving = useProjectStore((s) => s.saving);
   const migrateProgress = useProjectStore((s) => s.migrateProgress);
   const importProgress = useProjectStore((s) => s.importProgress);
+  const dismissImportOverlay = useProjectStore((s) => s.dismissImportOverlay);
   const saveNow = useProjectStore((s) => s.saveNow);
   const queueImportFile = useProjectStore((s) => s.queueImportFile);
 
@@ -38,6 +40,15 @@ export function AppShell() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [saveNow]);
+
+  useEffect(() => {
+    if (importProgress?.phase !== "index" || !importProgress.blocking) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") dismissImportOverlay();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [importProgress, dismissImportOverlay]);
 
   useEffect(() => {
     if (project?.settings.theme === "light") {
@@ -70,17 +81,19 @@ export function AppShell() {
           <span className="truncate text-[10px] text-zinc-500">A json/csv log explorer</span>
         </div>
         <span className="text-[11px] text-zinc-600">
-          {importProgress
-            ? `Importing ${importProgress.done}/${importProgress.total}…`
-            : migrateProgress
-              ? "Upgrading storage…"
-              : saving
-                ? "Saving…"
-                : dirty
-                  ? "Unsaved"
-                  : project
-                    ? "Saved locally"
-                    : ""}
+          {importProgress?.phase === "logs"
+            ? `Importing logs ${importProgress.done}/${importProgress.total}…`
+            : importProgress?.phase === "index"
+              ? `Building search index ${importProgress.done}/${importProgress.total}…`
+              : migrateProgress
+                ? "Upgrading storage…"
+                : saving
+                  ? "Saving…"
+                  : dirty
+                    ? "Unsaved"
+                    : project
+                      ? "Saved locally"
+                      : ""}
         </span>
       </header>
       {!hydrated && !migrateProgress ? (
@@ -126,18 +139,29 @@ export function AppShell() {
         </div>
       )}
       <ImportDialog />
-      {importProgress
+      {importProgress?.blocking
         ? createPortal(
             <div
-              className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-2 bg-zinc-950/80 text-center"
+              className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-3 bg-zinc-950/80 text-center"
               role="status"
               aria-live="polite"
               aria-busy="true"
             >
               <p className="text-sm font-medium text-zinc-100">
-                Importing {importProgress.done}/{importProgress.total}…
+                {importProgress.phase === "index"
+                  ? `Building search index ${importProgress.done}/${importProgress.total}…`
+                  : `Importing logs ${importProgress.done}/${importProgress.total}…`}
               </p>
-              <p className="text-[12px] text-zinc-500">Stay on this tab until import finishes.</p>
+              <p className="text-[12px] text-zinc-500">
+                {importProgress.phase === "index"
+                  ? "Browse is ready. Find same value and 🔗 wait until this finishes."
+                  : "Stay on this tab until logs finish writing."}
+              </p>
+              {importProgress.phase === "index" ? (
+                <Button variant="secondary" onClick={dismissImportOverlay}>
+                  Continue working
+                </Button>
+              ) : null}
             </div>,
             document.body,
           )

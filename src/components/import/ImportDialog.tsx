@@ -64,7 +64,7 @@ export function ImportDialog() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const importing = Boolean(importProgress);
+  const importing = importProgress?.blocking === true;
   const destSet = logSetId !== "new" ? project?.logSets.find((s) => s.id === logSetId) : undefined;
   const targetEmpty = logSetId !== "new" && (destSet ? sourceLogCount(project, logsBySource, destSet) === 0 : true);
   const showName = logSetId === "new" || targetEmpty;

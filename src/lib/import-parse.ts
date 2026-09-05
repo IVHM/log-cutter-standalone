@@ -190,7 +190,7 @@ export async function toLogRecords(
   const seen = { ...opts.existingHashes };
 
   for (const row of rows) {
-    const hash = await hashPayload(row.data, row.meta, includeMeta);
+    const hash = hashPayload(row.data, row.meta, includeMeta);
     hashes.push(hash);
     if (seen[hash]) {
       duplicates += 1;

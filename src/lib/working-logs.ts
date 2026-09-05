@@ -33,6 +33,13 @@ export function sourceLogCount(
   return sourceLogs(project, cache, set.id).length;
 }
 
+/** Legacy sources omit indexedCount and are treated as ready. */
+export function sourceIndexReady(set: LogSet | undefined): boolean {
+  if (!set) return true;
+  if (set.indexedCount == null) return true;
+  return set.indexedCount >= (set.logCount ?? 0);
+}
+
 export function workingLogTotal(
   project: Project | null | undefined,
   cache: Record<string, LogRecord[]>,

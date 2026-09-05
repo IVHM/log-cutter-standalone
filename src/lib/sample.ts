@@ -138,7 +138,7 @@ export async function buildSampleProject(): Promise<Project> {
   const logs: LogRecord[] = [];
   const hashIndex: Record<string, string> = {};
   for (const data of SAMPLE_LOGS) {
-    const hash = await hashPayload(data);
+    const hash = hashPayload(data);
     const id = nanoid();
     hashIndex[hash] = id;
     logs.push({

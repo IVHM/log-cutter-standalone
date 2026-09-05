@@ -6,14 +6,17 @@ import {
   deleteLogsForSource,
   deleteProject as dbDelete,
   getLastProjectId,
+  getLogsForSource,
   getProject,
   hashesForSource,
+  indexLogFields,
   listProjects,
   putLogNote,
   putProjectDoc,
   replaceProject,
   setLastProjectId,
   yieldUi,
+  type ImportProgress,
   type MigrateProgress,
 } from "./db";
 import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
@@ -66,7 +69,7 @@ type Store = {
   dirty: boolean;
   saving: boolean;
   migrateProgress: MigrateProgress | null;
-  importProgress: MigrateProgress | null;
+  importProgress: ImportProgress | null;
   project: Project | null;
   projects: ProjectSummary[];
   /** Per-source working set. Import writes here instead of cloning project.logs. */
@@ -124,6 +127,7 @@ type Store = {
     rows: ParsedRow[],
     sourceFile?: string,
   ) => Promise<{ added: number; duplicates: number; logSetId: string }>;
+  dismissImportOverlay: () => void;
   removeLogs: (ids: string[]) => void;
   setLogNote: (id: string, note: string) => void;
   ensureWorkingLogs: (logs: LogRecord[]) => void;
@@ -176,6 +180,7 @@ function emptyLogSet(id: string, name: string, now: number, sourceFile?: string)
     schemaFields: [],
     idFieldPaths: [],
     logCount: 0,
+    indexedCount: 0,
   };
 }
 
@@ -254,6 +259,74 @@ function upsertTab(project: Project, tab: Tab, active = true): Project {
   };
 }
 
+type StoreSet = (partial: Partial<Store> | ((state: Store) => Partial<Store>)) => void;
+
+let fieldIndexTail: Promise<void> = Promise.resolve();
+
+function enqueueFieldIndex(job: () => Promise<void>) {
+  fieldIndexTail = fieldIndexTail.then(job, job).then(
+    () => undefined,
+    (err) => {
+      console.warn("Field index job failed.", err);
+    },
+  );
+  return fieldIndexTail;
+}
+
+async function runFieldIndex(
+  get: () => Store,
+  set: StoreSet,
+  projectId: string,
+  sourceId: string,
+  logs: LogRecord[],
+  blocking: boolean,
+) {
+  if (logs.length === 0) return;
+  const currentProgress = get().importProgress;
+  set({
+    importProgress: {
+      phase: "index",
+      done: 0,
+      total: logs.length,
+      blocking: currentProgress?.phase === "index" ? currentProgress.blocking : blocking,
+    },
+  });
+  await indexLogFields(projectId, logs, (progress) => {
+    const current = get().importProgress;
+    if (current?.phase !== "index") return;
+    set({ importProgress: { ...current, done: progress.done, total: progress.total } });
+  });
+  const current = get().project;
+  if (current?.id === projectId) {
+    set({
+      project: {
+        ...current,
+        logSets: current.logSets.map((source) =>
+          source.id === sourceId ? { ...source, indexedCount: source.logCount ?? logs.length } : source,
+        ),
+        updatedAt: Date.now(),
+      },
+      dirty: true,
+    });
+    scheduleSave(get);
+  }
+  if (get().importProgress?.phase === "index") set({ importProgress: null });
+}
+
+function resumePendingFieldIndexes(get: () => Store, set: StoreSet) {
+  const project = get().project;
+  if (!project) return;
+  for (const source of project.logSets) {
+    if (source.indexedCount == null) continue;
+    if (source.indexedCount >= (source.logCount ?? 0)) continue;
+    void enqueueFieldIndex(async () => {
+      if (get().project?.id !== project.id) return;
+      const logs = await getLogsForSource(project.id, source.id);
+      await runFieldIndex(get, set, project.id, source.id, logs, false);
+    });
+  }
+}
+
 export const useProjectStore = create<Store>((set, get) => ({
   hydrated: false,
   dirty: false,
@@ -308,6 +381,7 @@ export const useProjectStore = create<Store>((set, get) => ({
         importProgress: null,
         logsBySource: {},
       });
+      resumePendingFieldIndexes(get, set);
     } catch (err) {
       console.warn("Failed to restore projects; starting empty.", err);
       set({
@@ -348,6 +422,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     if (projectNormalizedDirty(raw, project)) await putProjectDoc(project);
     await setLastProjectId(id);
     set({ project, dirty: false, logsBySource: {} });
+    resumePendingFieldIndexes(get, set);
   },
 
   renameProject: (name) => {
@@ -742,13 +817,13 @@ export const useProjectStore = create<Store>((set, get) => ({
     let firstNew: LogRecord | undefined;
     const imported: LogRecord[] = [];
 
-    set({ importProgress: { done: 0, total: rows.length } });
+    set({ importProgress: { phase: "logs", done: 0, total: rows.length, blocking: true } });
     await yieldUi();
 
     try {
       for (let i = 0; i < rows.length; i += IMPORT_CHUNK) {
         const slice = rows.slice(i, i + IMPORT_CHUNK);
-        const hashes = await Promise.all(slice.map((row) => hashPayload(row.data, row.meta, includeMeta)));
+        const hashes = slice.map((row) => hashPayload(row.data, row.meta, includeMeta));
         const batch: LogRecord[] = [];
         for (let j = 0; j < slice.length; j += 1) {
           const row = slice[j];
@@ -779,12 +854,22 @@ export const useProjectStore = create<Store>((set, get) => ({
           added += batch.length;
           imported.push(...batch);
         }
-        set({ importProgress: { done: Math.min(i + slice.length, rows.length), total: rows.length } });
+        set({
+          importProgress: {
+            phase: "logs",
+            done: Math.min(i + slice.length, rows.length),
+            total: rows.length,
+            blocking: true,
+          },
+        });
         await yieldUi();
       }
 
       const current = get().project;
-      if (!current) return { added, duplicates, logSetId: setId };
+      if (!current) {
+        set({ importProgress: null });
+        return { added, duplicates, logSetId: setId };
+      }
 
       const logSets =
         logSetId === "new"
@@ -792,6 +877,7 @@ export const useProjectStore = create<Store>((set, get) => ({
           : current.logSets.map((s) => (s.id === setId ? { ...s, sourceFile: s.sourceFile ?? sourceFile } : s));
       const suggested = suggestColumns(schemaFields, priorCount + added);
       const suggestedHeaders = firstPopulate && firstNew ? suggestHeaderPaths(firstNew.data) : [];
+      const priorIndexed = dest?.indexedCount ?? priorCount;
       const nextSets = logSets.map((s) =>
         s.id !== setId
           ? s
@@ -806,6 +892,7 @@ export const useProjectStore = create<Store>((set, get) => ({
                   ? suggestedHeaders
                   : s.headerPaths,
               logCount: priorCount + added,
+              indexedCount: added > 0 ? priorIndexed : (s.indexedCount ?? priorCount),
             },
       );
       const nextProject = upsertTab(
@@ -828,9 +915,27 @@ export const useProjectStore = create<Store>((set, get) => ({
       }
       set({ project: nextProject, dirty: true, logsBySource: nextCache });
       scheduleSave(get);
+      if (added === 0) {
+        set({ importProgress: null });
+        return { added, duplicates, logSetId: setId };
+      }
+      set({
+        importProgress: { phase: "index", done: 0, total: added, blocking: true },
+      });
+      void enqueueFieldIndex(() =>
+        runFieldIndex(get, set, nextProject.id, setId, imported, true),
+      );
       return { added, duplicates, logSetId: setId };
-    } finally {
+    } catch (err) {
       set({ importProgress: null });
+      throw err;
+    }
+  },
+
+  dismissImportOverlay: () => {
+    const progress = get().importProgress;
+    if (progress?.phase === "index" && progress.blocking) {
+      set({ importProgress: { ...progress, blocking: false } });
     }
   },
 

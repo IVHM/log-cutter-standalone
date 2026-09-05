@@ -6,6 +6,12 @@ import { SCHEMA_VERSION } from "./types";
 
 export type ProjectSummary = Pick<Project, "id" | "name" | "updatedAt" | "createdAt">;
 export type MigrateProgress = { done: number; total: number };
+export type ImportProgress = {
+  phase: "logs" | "index";
+  done: number;
+  total: number;
+  blocking: boolean;
+};
 
 type LegacyStored = ProjectDoc & {
   logs?: LogRecord[];
@@ -27,7 +33,8 @@ const memory: MemoryState = {
   lastId: null,
 };
 
-const WRITE_CHUNK = 80;
+const WRITE_CHUNK = 400;
+const INDEX_CHUNK = 80;
 
 let mode: "idb" | "memory" | "unknown" = "unknown";
 let dexie: LogExplorerDB | null = null;
@@ -58,6 +65,13 @@ class LogExplorerDB extends Dexie {
       logs: "id, projectId, sourceId, hash, [projectId+sourceId], [projectId+hash], importedAt",
       logFields:
         "id, projectId, [projectId+logId], [projectId+sourceId], [projectId+sourceId+path], [projectId+path+valueKey], [projectId+sourceId+path+valueKey]",
+    });
+    this.version(4).stores({
+      projects: "id, name, updatedAt",
+      meta: "key",
+      logs: "id, projectId, sourceId, hash, [projectId+sourceId], [projectId+hash], importedAt",
+      logFields:
+        "id, projectId, [projectId+logId], [projectId+sourceId], [projectId+sourceId+path+valueKey]",
     });
   }
 }
@@ -225,19 +239,34 @@ async function idbClearProjectData(projectId: string): Promise<void> {
   });
 }
 
-async function writeLogChunk(projectId: string, logs: LogRecord[]): Promise<void> {
+async function writeLogPayloadChunk(projectId: string, logs: LogRecord[]): Promise<void> {
   const rows = logs.map((log) => toLogRow(projectId, log));
-  const fields = logs.flatMap((log) => fieldsForLog(projectId, log));
   for (const row of rows) memory.logs.set(row.id, row);
-  memory.fields.push(...fields);
   if (mode !== "idb" || !dexie) return;
   try {
-    await dexie.transaction("rw", dexie.logs, dexie.logFields, async () => {
-      await dexie!.logs.bulkPut(rows);
-      if (fields.length > 0) await dexie!.logFields.bulkPut(fields);
-    });
+    await dexie.logs.bulkPut(rows);
   } catch {
     mode = "memory";
+  }
+}
+
+function rememberFields(fields: LogFieldRow[]) {
+  if (mode !== "idb") memory.fields.push(...fields);
+}
+
+async function writeFieldIndexChunk(projectId: string, logs: LogRecord[]): Promise<void> {
+  if (logs.length === 0) return;
+  const fields = logs.flatMap((log) => fieldsForLog(projectId, log));
+  if (fields.length === 0) return;
+  if (mode !== "idb" || !dexie) {
+    memory.fields.push(...fields);
+    return;
+  }
+  try {
+    await dexie.logFields.bulkPut(fields);
+  } catch {
+    mode = "memory";
+    rememberFields(fields);
   }
 }
 
@@ -249,8 +278,12 @@ async function writeLogsChunked(
   const total = logs.length;
   onProgress?.({ done: 0, total });
   for (let i = 0; i < logs.length; i += WRITE_CHUNK) {
-    await writeLogChunk(projectId, logs.slice(i, i + WRITE_CHUNK));
+    await writeLogPayloadChunk(projectId, logs.slice(i, i + WRITE_CHUNK));
     onProgress?.({ done: Math.min(i + WRITE_CHUNK, total), total });
+  }
+  for (let i = 0; i < logs.length; i += INDEX_CHUNK) {
+    await writeFieldIndexChunk(projectId, logs.slice(i, i + INDEX_CHUNK));
+    onProgress?.({ done: Math.min(i + INDEX_CHUNK, total), total });
     await yieldUi();
   }
   if (total === 0) onProgress?.({ done: 0, total: 0 });
@@ -259,7 +292,12 @@ async function writeLogsChunked(
 function catalogSources(project: Pick<Project, "logSets" | "logs">): Project["logSets"] {
   return project.logSets.map((set) => {
     const setLogs = project.logs.filter((log) => log.logSetId === set.id);
-    return { ...set, schemaFields: inferSchema(setLogs) };
+    return {
+      ...set,
+      schemaFields: inferSchema(setLogs),
+      logCount: setLogs.length,
+      indexedCount: setLogs.length,
+    };
   });
 }
 
@@ -385,7 +423,27 @@ export async function appendLogs(projectId: string, logs: LogRecord[]): Promise<
   if (logs.length === 0) return;
   await ensureBackend();
   for (let i = 0; i < logs.length; i += WRITE_CHUNK) {
-    await writeLogChunk(projectId, logs.slice(i, i + WRITE_CHUNK));
+    await writeLogPayloadChunk(projectId, logs.slice(i, i + WRITE_CHUNK));
+  }
+}
+
+/** Write logFields for already-stored logs. Safe to repeat (deterministic ids upsert). */
+export async function indexLogFields(
+  projectId: string,
+  logs: LogRecord[],
+  onProgress?: (progress: MigrateProgress) => void,
+): Promise<void> {
+  if (logs.length === 0) {
+    onProgress?.({ done: 0, total: 0 });
+    return;
+  }
+  await ensureBackend();
+  const total = logs.length;
+  onProgress?.({ done: 0, total });
+  for (let i = 0; i < logs.length; i += INDEX_CHUNK) {
+    await writeFieldIndexChunk(projectId, logs.slice(i, i + INDEX_CHUNK));
+    onProgress?.({ done: Math.min(i + INDEX_CHUNK, total), total });
+    await yieldUi();
   }
 }
 
@@ -464,19 +522,23 @@ export async function deleteLogsForSource(projectId: string, sourceId: string): 
 
 export async function putLogNote(projectId: string, log: LogRecord): Promise<void> {
   const row = toLogRow(projectId, log);
-  memory.logs.set(row.id, row);
-  memory.fields = memory.fields.filter((f) => !(f.logId === log.id && f.kind === "note"));
   const note = noteFieldRow(projectId, log);
-  if (note) memory.fields.push(note);
+  memory.logs.set(row.id, row);
   try {
     const backend = await ensureBackend();
-    if (backend === "memory" || !dexie) return;
+    if (backend === "memory" || !dexie) {
+      memory.fields = memory.fields.filter((f) => !(f.logId === log.id && f.kind === "note"));
+      if (note) memory.fields.push(note);
+      return;
+    }
     await dexie.logs.put(row);
     const existing = await dexie.logFields.where("[projectId+logId]").equals([projectId, log.id]).toArray();
     await dexie.logFields.bulkDelete(existing.filter((f) => f.kind === "note").map((f) => f.id));
     if (note) await dexie.logFields.put(note);
   } catch {
     mode = "memory";
+    memory.fields = memory.fields.filter((f) => !(f.logId === log.id && f.kind === "note"));
+    if (note) memory.fields.push(note);
   }
 }
 
