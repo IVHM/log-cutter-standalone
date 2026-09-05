@@ -11,7 +11,7 @@ export function valueKey(value: string | number | boolean | null): string {
   return value;
 }
 
-function asLeaf(
+export function asLeaf(
   value: unknown,
 ): { jsonType: LogFieldRow["jsonType"]; value: string | number | boolean | null } | null {
   if (value === null) return { jsonType: "null", value: null };
@@ -107,4 +107,43 @@ export function hashIndexFromLogs(logs: LogRecord[]): Record<string, string> {
   const index: Record<string, string> = {};
   for (const log of logs) index[log.hash] = log.id;
   return index;
+}
+
+export type SameValueQuery = {
+  path: string;
+  valueKey: string;
+  display: string;
+};
+
+function queryPathForValue(path: string, value: unknown): string {
+  const schema = toSchemaPath(path);
+  if (Array.isArray(value) && !schema.includes("[]")) return schema ? `${schema}[]` : "[]";
+  return schema;
+}
+
+/** Leaf (or array-of-leaves) queries for Find same value. Empty if the value is not a leaf. */
+export function sameValueQueries(path: string, value: unknown): SameValueQuery[] {
+  if (Array.isArray(value)) {
+    const schemaPath = queryPathForValue(path, value);
+    const seen = new Set<string>();
+    const out: SameValueQuery[] = [];
+    for (const item of value) {
+      const leaf = asLeaf(item);
+      if (!leaf) continue;
+      const key = valueKey(leaf.value);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ path: schemaPath, valueKey: key, display: formatCellValue(leaf.value, 80) });
+    }
+    return out;
+  }
+  const leaf = asLeaf(value);
+  if (!leaf || !path) return [];
+  return [
+    {
+      path: toSchemaPath(path),
+      valueKey: valueKey(leaf.value),
+      display: formatCellValue(leaf.value, 80),
+    },
+  ];
 }

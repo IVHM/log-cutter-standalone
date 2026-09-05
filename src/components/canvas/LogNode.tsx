@@ -4,12 +4,15 @@ import { type NodeProps } from "@xyflow/react";
 import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { FindSameValueDialog, type FindSameValueTarget } from "@/components/canvas/FindSameValueDialog";
+import { FindSameValueHit } from "@/components/canvas/FindSameValueHit";
 import { JsonTree } from "@/components/json/JsonTree";
 import { jsonType } from "@/lib/hash";
 import { logField } from "@/lib/filter";
-import { formatScalar, getAtPath, isHiddenPath } from "@/lib/json-path";
+import type { SameValueQuery } from "@/lib/fields";
+import { formatScalar, getAtPath, isHiddenPath, joinPath } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
-import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, type LogNodeData } from "@/lib/types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, type LogNodeData, type LogRecord } from "@/lib/types";
 import { NodeConnectHandles } from "./NodeConnectHandles";
 import { cn } from "@/lib/utils";
 import { useCanvasId } from "./canvas-context";
@@ -23,6 +26,7 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const setLogNote = useProjectStore((s) => s.setLogNote);
   const [copied, setCopied] = useState(false);
+  const [find, setFind] = useState<FindSameValueTarget | null>(null);
 
   if (!log) {
     return (
@@ -35,10 +39,24 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   const headerPaths = (logSet?.headerPaths?.length ? logSet.headerPaths : DEFAULT_HEADER_PATHS).slice(0, 3);
   const headerColor = logSet?.headerColor || DEFAULT_HEADER_COLOR;
   const headerText = headerFg(headerColor);
-  const headerBits = headerPaths
-    .map((path) => formatScalar(logField(log, path), 48))
-    .filter((bit) => bit && bit !== "undefined");
-  const title = headerBits.length > 0 ? headerBits.join(" · ") : jsonType(log.data);
+  const headerEntries = headerPaths
+    .map((path) => ({ path, value: logField(log, path) }))
+    .filter(({ value }) => {
+      const text = formatScalar(value, 48);
+      return Boolean(text) && text !== "undefined";
+    });
+  const titleFallback = jsonType(log.data);
+
+  function openFind(query: SameValueQuery) {
+    if (!log) return;
+    setFind({
+      originLogId: log.id,
+      sourceId: log.logSetId,
+      path: query.path,
+      valueKey: query.valueKey,
+      display: query.display,
+    });
+  }
 
   function togglePin(path: string) {
     const next = data.pinnedPaths.includes(path)
@@ -76,7 +94,16 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
           {data.collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
         </button>
         <div className="min-w-0 flex-1 line-clamp-2 font-mono text-[11px] font-medium leading-snug break-words">
-          {title}
+          {headerEntries.length === 0
+            ? titleFallback
+            : headerEntries.map((entry, i) => (
+                <span key={entry.path}>
+                  {i > 0 ? " · " : null}
+                  <FindSameValueHit path={entry.path} value={entry.value} onFind={openFind}>
+                    {formatScalar(entry.value, 48)}
+                  </FindSameValueHit>
+                </span>
+              ))}
         </div>
         <button
           type="button"
@@ -99,9 +126,10 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
       <div className="nowheel nopan max-h-[420px] overflow-auto p-2">
         {data.collapsed ? (
           <CollapsedBody
-            data={log.data}
+            log={log}
             pinnedPaths={data.pinnedPaths}
             hiddenPaths={logSet?.hiddenPaths ?? []}
+            onFind={openFind}
           />
         ) : (
           <JsonTree
@@ -111,6 +139,7 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
             hiddenPaths={logSet?.hiddenPaths ?? []}
             onTogglePin={togglePin}
             onToggleCollapse={toggleCollapsePath}
+            onFindSameValue={openFind}
           />
         )}
         {Object.keys(log.meta).length > 0 && !data.collapsed ? (
@@ -119,7 +148,9 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
             {Object.entries(log.meta).map(([k, v]) => (
               <div key={k} className="flex gap-1 font-mono text-[11px]">
                 <span className="text-zinc-400">{k}:</span>
-                <span className="text-emerald-400/90">{v}</span>
+                <FindSameValueHit path={joinPath("meta", k)} value={v} onFind={openFind}>
+                  <span className="text-emerald-400/90">{v}</span>
+                </FindSameValueHit>
               </div>
             ))}
           </div>
@@ -137,6 +168,14 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
       </div>
       </div>
       <NodeConnectHandles />
+      <FindSameValueDialog
+        open={find !== null}
+        onOpenChange={(next) => {
+          if (!next) setFind(null);
+        }}
+        canvasId={canvasId}
+        target={find}
+      />
     </div>
   );
 }
@@ -177,13 +216,15 @@ function headerFg(hex: string): string {
 }
 
 function CollapsedBody({
-  data,
+  log,
   pinnedPaths,
   hiddenPaths,
+  onFind,
 }: {
-  data: unknown;
+  log: LogRecord;
   pinnedPaths: string[];
   hiddenPaths: string[];
+  onFind: (query: SameValueQuery) => void;
 }) {
   const visiblePins = pinnedPaths.filter((path) => !isHiddenPath(path, hiddenPaths));
   if (visiblePins.length === 0) {
@@ -195,12 +236,17 @@ function CollapsedBody({
   }
   return (
     <div className="space-y-1">
-      {visiblePins.map((path) => (
-        <div key={path} className="flex items-start gap-2 font-mono text-[11px]">
-          <span className="shrink-0 text-zinc-500">{path}</span>
-          <span className="min-w-0 break-all text-zinc-200">{formatScalar(getAtPath(data, path), 100)}</span>
-        </div>
-      ))}
+      {visiblePins.map((path) => {
+        const value = path.startsWith("meta.") ? log.meta[path.slice(5)] : getAtPath(log.data, path);
+        return (
+          <div key={path} className="flex items-start gap-2 font-mono text-[11px]">
+            <span className="shrink-0 text-zinc-500">{path}</span>
+            <FindSameValueHit path={path} value={value} onFind={onFind} className="min-w-0">
+              <span className="text-zinc-200">{formatScalar(value, 100)}</span>
+            </FindSameValueHit>
+          </div>
+        );
+      })}
     </div>
   );
 }

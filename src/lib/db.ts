@@ -52,6 +52,13 @@ class LogExplorerDB extends Dexie {
       logFields:
         "id, projectId, [projectId+logId], [projectId+sourceId], [projectId+sourceId+path], [projectId+path+valueKey]",
     });
+    this.version(3).stores({
+      projects: "id, name, updatedAt",
+      meta: "key",
+      logs: "id, projectId, sourceId, hash, [projectId+sourceId], [projectId+hash], importedAt",
+      logFields:
+        "id, projectId, [projectId+logId], [projectId+sourceId], [projectId+sourceId+path], [projectId+path+valueKey], [projectId+sourceId+path+valueKey]",
+    });
   }
 }
 
@@ -469,6 +476,73 @@ export async function setLastProjectId(id: string | null): Promise<void> {
     await dexie.meta.put({ key: "lastProjectId", value: id });
   } catch {
     mode = "memory";
+  }
+}
+
+/**
+ * B1: exact same path + valueKey in one source, via logFields (not a full log scan).
+ * Results are unique logs, newest importedAt first.
+ */
+export async function findLogsBySameValue(opts: {
+  projectId: string;
+  sourceId: string;
+  path: string;
+  valueKey: string;
+}): Promise<LogRecord[]> {
+  const { projectId, sourceId, path, valueKey } = opts;
+  const logIds = new Set<string>();
+  try {
+    const backend = await ensureBackend();
+    if (backend === "memory" || !dexie) {
+      for (const field of memory.fields) {
+        if (
+          field.projectId === projectId &&
+          field.sourceId === sourceId &&
+          field.path === path &&
+          field.valueKey === valueKey
+        ) {
+          logIds.add(field.logId);
+        }
+      }
+    } else {
+      const matches = await dexie.logFields
+        .where("[projectId+sourceId+path+valueKey]")
+        .equals([projectId, sourceId, path, valueKey])
+        .toArray();
+      for (const field of matches) logIds.add(field.logId);
+    }
+  } catch {
+    mode = "memory";
+    for (const field of memory.fields) {
+      if (
+        field.projectId === projectId &&
+        field.sourceId === sourceId &&
+        field.path === path &&
+        field.valueKey === valueKey
+      ) {
+        logIds.add(field.logId);
+      }
+    }
+  }
+
+  const ids = [...logIds];
+  if (ids.length === 0) return [];
+  const rows = await getLogRowsByIds(ids);
+  return rows
+    .map(fromLogRow)
+    .sort((a, b) => b.importedAt - a.importedAt || a.id.localeCompare(b.id));
+}
+
+async function getLogRowsByIds(ids: string[]): Promise<LogRow[]> {
+  const fromMemory = ids.map((id) => memory.logs.get(id)).filter((row): row is LogRow => Boolean(row));
+  if (fromMemory.length === ids.length || mode === "memory" || !dexie) return fromMemory;
+  try {
+    const rows = await dexie.logs.bulkGet(ids);
+    const found = rows.filter((row): row is LogRow => Boolean(row));
+    for (const row of found) memory.logs.set(row.id, row);
+    return found;
+  } catch {
+    return fromMemory;
   }
 }
 

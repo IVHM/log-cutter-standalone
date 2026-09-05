@@ -3,6 +3,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { formatLogCell } from "@/lib/fields";
 import type { LogRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ type Props = {
   columns: string[];
   selected: Set<string>;
   previewId?: string | null;
+  originLogId?: string;
   sortBy?: { path: string; dir: "asc" | "desc" };
   onToggleSort?: (path: string) => void;
   onToggleSelect: (id: string, checked: boolean) => void;
@@ -27,6 +29,7 @@ export function VirtualLogTable({
   columns,
   selected,
   previewId,
+  originLogId,
   sortBy,
   onToggleSort,
   onToggleSelect,
@@ -36,7 +39,8 @@ export function VirtualLogTable({
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const colCount = columns.length + 1;
-  const allSelected = logs.length > 0 && logs.every((log) => selected.has(log.id));
+  const selectable = originLogId ? logs.filter((log) => log.id !== originLogId) : logs;
+  const allSelected = selectable.length > 0 && selectable.every((log) => selected.has(log.id));
 
   const virtualizer = useVirtualizer({
     count: logs.length,
@@ -89,6 +93,7 @@ export function VirtualLogTable({
                   "cursor-pointer border-b border-zinc-900 hover:bg-zinc-900/80",
                   selected.has(log.id) && "bg-sky-950/40",
                   previewId === log.id && "bg-zinc-900",
+                  originLogId === log.id && "bg-zinc-900/60",
                 )}
                 onClick={() => onRowClick?.(log)}
               >
@@ -98,9 +103,16 @@ export function VirtualLogTable({
                     onCheckedChange={(v) => onToggleSelect(log.id, Boolean(v))}
                   />
                 </td>
-                {columns.map((col) => (
+                {columns.map((col, colIndex) => (
                   <td key={col} className="max-w-[280px] truncate px-2 py-1 font-mono text-zinc-200">
-                    {formatLogCell(log, col, 80)}
+                    <span className="inline-flex max-w-full items-center gap-1.5">
+                      <span className="truncate">{formatLogCell(log, col, 80)}</span>
+                      {colIndex === 0 && originLogId === log.id ? (
+                        <Badge variant="secondary" className="shrink-0 text-[9px] uppercase">
+                          This card
+                        </Badge>
+                      ) : null}
+                    </span>
                   </td>
                 ))}
               </tr>

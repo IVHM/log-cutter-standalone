@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 import { Pin } from "lucide-react";
+import { FindSameValueHit } from "@/components/canvas/FindSameValueHit";
+import type { SameValueQuery } from "@/lib/fields";
 import { jsonType } from "@/lib/hash";
 import { formatScalar, isHiddenPath, isPinnedUnder, joinPath } from "@/lib/json-path";
 import { cn } from "@/lib/utils";
@@ -23,6 +25,7 @@ type Props = {
   hiddenPaths?: string[];
   onTogglePin: (path: string) => void;
   onToggleCollapse: (path: string) => void;
+  onFindSameValue?: (query: SameValueQuery) => void;
   depth?: number;
 };
 
@@ -34,6 +37,7 @@ export function JsonTree({
   hiddenPaths = [],
   onTogglePin,
   onToggleCollapse,
+  onFindSameValue,
   depth = 0,
 }: Props) {
   if (path && isHiddenPath(path, hiddenPaths)) return null;
@@ -51,7 +55,15 @@ export function JsonTree({
         depth={depth}
       >
         <span className={cn("font-mono text-[12px] break-all", TYPE_CLASS[type])}>
-          {type === "string" ? JSON.stringify(formatScalar(value, 120)) : formatScalar(value, 120)}
+          {onFindSameValue && path ? (
+            <FindSameValueHit path={path} value={value} onFind={onFindSameValue}>
+              {type === "string" ? JSON.stringify(formatScalar(value, 120)) : formatScalar(value, 120)}
+            </FindSameValueHit>
+          ) : type === "string" ? (
+            JSON.stringify(formatScalar(value, 120))
+          ) : (
+            formatScalar(value, 120)
+          )}
         </span>
       </TreeRow>
     );
@@ -96,6 +108,7 @@ export function JsonTree({
             hiddenPaths={hiddenPaths}
             onTogglePin={onTogglePin}
             onToggleCollapse={onToggleCollapse}
+            onFindSameValue={onFindSameValue}
             depth={path === "" ? depth : depth + 1}
           />
         ))}

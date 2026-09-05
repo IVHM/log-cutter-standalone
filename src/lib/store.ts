@@ -30,6 +30,7 @@ import type {
   Canvas,
   EdgeConnection,
   LogSet,
+  LogRecord,
   Project,
   ProjectSettings,
   Tab,
@@ -100,6 +101,7 @@ type Store = {
   ) => Promise<{ added: number; duplicates: number; logSetId: string }>;
   removeLogs: (ids: string[]) => void;
   setLogNote: (id: string, note: string) => void;
+  ensureWorkingLogs: (logs: LogRecord[]) => void;
 
   createView: (logSetId: string, name?: string) => string;
   updateView: (id: string, patch: Partial<BrowserView>) => void;
@@ -688,6 +690,21 @@ export const useProjectStore = create<Store>((set, get) => ({
       ...p,
       logs: p.logs.map((l) => (l.id === id ? { ...l, note } : l)),
     }));
+  },
+
+  ensureWorkingLogs: (logs) => {
+    const project = get().project;
+    if (!project || logs.length === 0) return;
+    const have = new Set(project.logs.map((l) => l.id));
+    const extra = logs.filter((l) => !have.has(l.id));
+    if (extra.length === 0) return;
+    set({
+      project: {
+        ...project,
+        logs: [...project.logs, ...extra],
+        hashIndex: { ...project.hashIndex, ...hashIndexFromLogs(extra) },
+      },
+    });
   },
 
   createView: (logSetId, name) => {
