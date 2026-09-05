@@ -91,6 +91,27 @@ export function addNoteToPostingSets(sets: FieldPostingSets, logId: string, note
   addPosting(sets, NOTE_FIELD_PATH, valueKey(leaf.value), logId);
 }
 
+/** True if this log would contribute `path`/`valueKey` to the posting list. */
+export function logMatchesValue(log: LogRecord, path: string, key: string): boolean {
+  const want = toSchemaPath(path);
+  let found = false;
+  const check = (p: string, k: string) => {
+    if (!found && p === want && k === key) found = true;
+  };
+  visitLeaves(log.data, "", 0, check);
+  if (found) return true;
+  for (const [metaKey, value] of Object.entries(log.meta ?? {})) {
+    const leaf = asLeaf(value);
+    if (!leaf) continue;
+    if (toSchemaPath(joinPath("meta", metaKey)) === want && valueKey(leaf.value) === key) return true;
+  }
+  if (log.note) {
+    const leaf = asLeaf(log.note);
+    if (leaf && want === NOTE_FIELD_PATH && valueKey(leaf.value) === key) return true;
+  }
+  return false;
+}
+
 export function removeLogsFromPostingSets(sets: FieldPostingSets, logIds: Set<string>): void {
   for (const [path, byValue] of sets) {
     for (const [key, ids] of byValue) {

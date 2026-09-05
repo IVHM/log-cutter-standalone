@@ -18,7 +18,6 @@ import { schemaForSource, suggestColumns } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
 import type { LogRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { sourceIndexReady } from "@/lib/working-logs";
 
 export type FindSameValueTarget = {
   originLogId: string;
@@ -48,7 +47,6 @@ export function FindSameValueDialog({ open, onOpenChange, canvasId, target }: Pr
   const ensureWorkingLogs = useProjectStore((s) => s.ensureWorkingLogs);
   const { fitView, getNodes } = useReactFlow();
   const source = logSets?.find((set) => set.id === (target ?? shown)?.sourceId);
-  const indexReady = sourceIndexReady(source);
 
   const onCanvas = useMemo(() => {
     const ids = new Set<string>();
@@ -74,11 +72,6 @@ export function FindSameValueDialog({ open, onOpenChange, canvasId, target }: Pr
       }
       return;
     }
-    if (!indexReady) {
-      setLogs([]);
-      setLoading(false);
-      return;
-    }
     let cancelled = false;
     setLoading(true);
     void findLogsBySameValue({
@@ -101,7 +94,7 @@ export function FindSameValueDialog({ open, onOpenChange, canvasId, target }: Pr
     return () => {
       cancelled = true;
     };
-  }, [open, target, projectId, indexReady, ensureWorkingLogs]);
+  }, [open, target, projectId, ensureWorkingLogs]);
 
   const columns = useMemo(() => {
     if (!shown) return [];
@@ -190,9 +183,7 @@ export function FindSameValueDialog({ open, onOpenChange, canvasId, target }: Pr
         </DialogHeader>
 
         <div className="h-[360px] overflow-hidden rounded-md border border-zinc-800">
-          { !indexReady ? (
-            <p className="px-3 py-8 text-center text-sm text-zinc-500">Building search index…</p>
-          ) : loading ? (
+          {loading ? (
             <p className="px-3 py-8 text-center text-sm text-zinc-500">Searching field index…</p>
           ) : logs.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-zinc-500">No logs in this source have that value.</p>

@@ -3,6 +3,7 @@ import {
   addLogToPostingSets,
   addNoteToPostingSets,
   hashIndexFromLogs,
+  logMatchesValue,
   NOTE_FIELD_PATH,
   postingsToSets,
   removeLogFromPath,
@@ -11,6 +12,7 @@ import {
   sourceFieldIndexId,
   type FieldPostingSets,
 } from "./fields";
+import { toSchemaPath } from "./json-path";
 import { inferSchema } from "./schema";
 import type { LogRecord, LogRow, Project, ProjectDoc, SourceFieldIndexRow } from "./types";
 import { SCHEMA_VERSION } from "./types";
@@ -712,13 +714,32 @@ export async function findLogsBySameValue(opts: {
 }): Promise<LogRecord[]> {
   const { projectId, sourceId, path, valueKey } = opts;
   await ensureBackend();
+  const lookupPath = toSchemaPath(path);
   const row = await getSourceIndexRow(projectId, sourceId);
-  const ids = row?.postings[path]?.[valueKey] ?? [];
+  let ids = row?.postings[lookupPath]?.[valueKey] ?? [];
+  if (ids.length === 0 && path !== lookupPath) ids = row?.postings[path]?.[valueKey] ?? [];
+  if (ids.length === 0) {
+    const logs = await logsForFind(projectId, sourceId);
+    ids = logs.filter((log) => logMatchesValue(log, lookupPath, valueKey)).map((log) => log.id);
+  }
   if (ids.length === 0) return [];
   const rows = await getLogRowsByIds(ids);
   return rows
     .map(fromLogRow)
     .sort((a, b) => b.importedAt - a.importedAt || a.id.localeCompare(b.id));
+}
+
+async function logsForFind(projectId: string, sourceId: string): Promise<LogRecord[]> {
+  try {
+    if (mode === "idb" && dexie) {
+      const rows = await dexie.logs.where("[projectId+sourceId]").equals([projectId, sourceId]).toArray();
+      for (const row of rows) memory.logs.set(row.id, row);
+      if (rows.length > 0) return rows.map(fromLogRow);
+    }
+  } catch {
+    mode = "memory";
+  }
+  return getLogsForSource(projectId, sourceId);
 }
 
 async function getLogRowsByIds(ids: string[]): Promise<LogRow[]> {
