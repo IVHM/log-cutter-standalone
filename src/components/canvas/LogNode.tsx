@@ -5,11 +5,13 @@ import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { FindSameValueDialog, type FindSameValueTarget } from "@/components/canvas/FindSameValueDialog";
+import { DynamicLinkDialog, type DynamicLinkTarget } from "@/components/canvas/DynamicLinkDialog";
 import { FindSameValueHit } from "@/components/canvas/FindSameValueHit";
 import { JsonTree } from "@/components/json/JsonTree";
 import { jsonType } from "@/lib/hash";
 import { logField } from "@/lib/filter";
 import type { SameValueQuery } from "@/lib/fields";
+import { idLinkForPath } from "@/lib/groups";
 import { formatScalar, getAtPath, isHiddenPath, joinPath } from "@/lib/json-path";
 import { useProjectStore } from "@/lib/store";
 import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, type LogNodeData, type LogRecord } from "@/lib/types";
@@ -27,6 +29,8 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
   const setLogNote = useProjectStore((s) => s.setLogNote);
   const [copied, setCopied] = useState(false);
   const [find, setFind] = useState<FindSameValueTarget | null>(null);
+  const [link, setLink] = useState<DynamicLinkTarget | null>(null);
+  const project = useProjectStore((s) => s.project);
 
   if (!log) {
     return (
@@ -55,6 +59,26 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
       path: query.path,
       valueKey: query.valueKey,
       display: query.display,
+    });
+  }
+
+  function isLinkedPath(path: string) {
+    if (!log || !project) return false;
+    return Boolean(idLinkForPath(project, log.logSetId, path));
+  }
+
+  function openLink(query: SameValueQuery) {
+    if (!log || !project) return;
+    const hit = idLinkForPath(project, log.logSetId, query.path);
+    if (!hit) return;
+    setLink({
+      originLogId: log.id,
+      sourceId: log.logSetId,
+      path: query.path,
+      valueKey: query.valueKey,
+      display: query.display,
+      label: hit.link.label,
+      bindings: hit.link.bindings,
     });
   }
 
@@ -99,7 +123,7 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
             : headerEntries.map((entry, i) => (
                 <span key={entry.path}>
                   {i > 0 ? " · " : null}
-                  <FindSameValueHit path={entry.path} value={entry.value} onFind={openFind}>
+                  <FindSameValueHit path={entry.path} value={entry.value} onFind={openFind} onLink={openLink} isLinkedPath={isLinkedPath}>
                     {formatScalar(entry.value, 48)}
                   </FindSameValueHit>
                 </span>
@@ -130,6 +154,8 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
             pinnedPaths={data.pinnedPaths}
             hiddenPaths={logSet?.hiddenPaths ?? []}
             onFind={openFind}
+            onLink={openLink}
+            isLinkedPath={isLinkedPath}
           />
         ) : (
           <JsonTree
@@ -140,6 +166,8 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
             onTogglePin={togglePin}
             onToggleCollapse={toggleCollapsePath}
             onFindSameValue={openFind}
+            onDynamicLink={openLink}
+            isLinkedPath={isLinkedPath}
           />
         )}
         {Object.keys(log.meta).length > 0 && !data.collapsed ? (
@@ -148,7 +176,7 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
             {Object.entries(log.meta).map(([k, v]) => (
               <div key={k} className="flex gap-1 font-mono text-[11px]">
                 <span className="text-zinc-400">{k}:</span>
-                <FindSameValueHit path={joinPath("meta", k)} value={v} onFind={openFind}>
+                <FindSameValueHit path={joinPath("meta", k)} value={v} onFind={openFind} onLink={openLink} isLinkedPath={isLinkedPath}>
                   <span className="text-emerald-400/90">{v}</span>
                 </FindSameValueHit>
               </div>
@@ -175,6 +203,14 @@ export function LogNode({ id, data, selected }: NodeProps & { data: LogNodeData 
         }}
         canvasId={canvasId}
         target={find}
+      />
+      <DynamicLinkDialog
+        open={link !== null}
+        onOpenChange={(next) => {
+          if (!next) setLink(null);
+        }}
+        canvasId={canvasId}
+        target={link}
       />
     </div>
   );
@@ -220,11 +256,15 @@ function CollapsedBody({
   pinnedPaths,
   hiddenPaths,
   onFind,
+  onLink,
+  isLinkedPath,
 }: {
   log: LogRecord;
   pinnedPaths: string[];
   hiddenPaths: string[];
   onFind: (query: SameValueQuery) => void;
+  onLink: (query: SameValueQuery) => void;
+  isLinkedPath: (path: string) => boolean;
 }) {
   const visiblePins = pinnedPaths.filter((path) => !isHiddenPath(path, hiddenPaths));
   if (visiblePins.length === 0) {
@@ -241,7 +281,7 @@ function CollapsedBody({
         return (
           <div key={path} className="flex items-start gap-2 font-mono text-[11px]">
             <span className="shrink-0 text-zinc-500">{path}</span>
-            <FindSameValueHit path={path} value={value} onFind={onFind} className="min-w-0">
+            <FindSameValueHit path={path} value={value} onFind={onFind} onLink={onLink} isLinkedPath={isLinkedPath} className="min-w-0">
               <span className="text-zinc-200">{formatScalar(value, 100)}</span>
             </FindSameValueHit>
           </div>

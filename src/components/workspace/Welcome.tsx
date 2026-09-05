@@ -120,7 +120,7 @@ export function Welcome() {
           <ul className="grid gap-2 text-[13px] text-zinc-500 sm:grid-cols-3">
             <li className="rounded-lg border border-zinc-800 p-3">
               <FileJson className="mb-2 size-4 text-zinc-400" />
-              Drop CSV with JSON in a cell. Duplicates are hashed out.
+              Drop CSV with JSON in a cell. Duplicates in a source are hashed out.
             </li>
             <li className="rounded-lg border border-zinc-800 p-3">
               <LayoutDashboard className="mb-2 size-4 text-zinc-400" />

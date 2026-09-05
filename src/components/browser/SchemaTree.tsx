@@ -2,8 +2,9 @@
 
 import { memo, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Eye, EyeOff, Pin } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Pin } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { looksLikeIdPath } from "@/lib/groups";
 import { coveragePercent, typeLabel, type SchemaTreeNode } from "@/lib/schema";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,8 @@ type Props = {
   onToggleColumn: (path: string) => void;
   onTogglePin: (path: string) => void;
   onToggleHidden: (path: string) => void;
+  idFieldPaths?: string[];
+  onToggleIdField?: (path: string) => void;
   className?: string;
 };
 
@@ -40,6 +43,8 @@ export const SchemaTree = memo(function SchemaTree({
   onToggleColumn,
   onTogglePin,
   onToggleHidden,
+  idFieldPaths = [],
+  onToggleIdField,
   className,
 }: Props) {
   const rows = useMemo(() => flattenSchema(nodes), [nodes]);
@@ -102,6 +107,30 @@ export const SchemaTree = memo(function SchemaTree({
                       {typeLabel(field)} · {coveragePercent(field.occurrences, logCount)}%
                     </span>
                     <span className="flex shrink-0 items-center">
+                      {onToggleIdField ? (
+                        <button
+                          type="button"
+                          title={
+                            idFieldPaths.includes(node.path)
+                              ? "ID field"
+                              : looksLikeIdPath(node.path)
+                                ? "Looks like an ID — click to mark"
+                                : "Mark as ID field"
+                          }
+                          aria-label={idFieldPaths.includes(node.path) ? "Unmark ID field" : "Mark as ID field"}
+                          onClick={() => onToggleIdField(node.path)}
+                          className={cn(
+                            "flex size-4 shrink-0 items-center justify-center rounded",
+                            idFieldPaths.includes(node.path)
+                              ? "text-sky-300"
+                              : looksLikeIdPath(node.path)
+                                ? "text-sky-700 hover:text-sky-300"
+                                : "text-zinc-400 hover:text-zinc-200",
+                          )}
+                        >
+                          <KeyRound className={cn("size-3", idFieldPaths.includes(node.path) && "fill-current")} />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         title="Default pin for new canvas cards"

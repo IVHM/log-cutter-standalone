@@ -146,6 +146,8 @@ export function toProjectDoc(project: Project): ProjectDoc {
     logSets: project.logSets,
     views: project.views,
     canvases: project.canvases,
+    sourceGroups: project.sourceGroups ?? [],
+    canvasGroups: project.canvasGroups ?? [],
     settings: project.settings,
     openTabs: project.openTabs,
     activeTabId: project.activeTabId,
@@ -300,6 +302,8 @@ async function migrateV1ToV2b(
     logSets,
     views: raw.views ?? [],
     canvases: raw.canvases ?? [],
+    sourceGroups: raw.sourceGroups ?? [],
+    canvasGroups: raw.canvasGroups ?? [],
     settings: raw.settings,
     openTabs: raw.openTabs ?? [],
     activeTabId: raw.activeTabId ?? null,
@@ -546,18 +550,18 @@ async function getLogRowsByIds(ids: string[]): Promise<LogRow[]> {
   }
 }
 
-/** True if this project already has a log with the given payload hash. */
-export async function hasHash(projectId: string, hash: string): Promise<boolean> {
+/** True if this source already has a log with the given payload hash. */
+export async function hasHash(projectId: string, sourceId: string, hash: string): Promise<boolean> {
   if (memory.logs.size > 0) {
     for (const row of memory.logs.values()) {
-      if (row.projectId === projectId && row.hash === hash) return true;
+      if (row.projectId === projectId && row.sourceId === sourceId && row.hash === hash) return true;
     }
   }
   try {
     const backend = await ensureBackend();
     if (backend === "memory" || !dexie) return false;
-    const row = await dexie.logs.where("[projectId+hash]").equals([projectId, hash]).first();
-    return Boolean(row);
+    const rows = await dexie.logs.where("[projectId+hash]").equals([projectId, hash]).toArray();
+    return rows.some((row) => row.sourceId === sourceId);
   } catch {
     return false;
   }

@@ -42,6 +42,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
   const project = useProjectStore((s) => s.project);
   const updateView = useProjectStore((s) => s.updateView);
   const updateLogSet = useProjectStore((s) => s.updateLogSet);
+  const toggleIdField = useProjectStore((s) => s.toggleIdField);
   const removeLogs = useProjectStore((s) => s.removeLogs);
   const setImportOpen = useProjectStore((s) => s.setImportOpen);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -258,7 +259,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
           </div>
           <p className="mt-1 text-[11px] leading-snug text-zinc-500">
             Inferred from {scopedLogs.length} logs in {logSet.name}. Check a field for a column.
-            Pin and hide apply to canvas cards from this source.
+            Pin and hide apply to canvas cards. The key icon marks identity fields for 🔗.
           </p>
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
@@ -277,6 +278,8 @@ export function LogBrowser({ viewId, logSetId }: Props) {
               onToggleColumn={toggleColumn}
               onTogglePin={toggleDefaultPin}
               onToggleHidden={toggleHidden}
+              idFieldPaths={logSet.idFieldPaths ?? []}
+              onToggleIdField={(path) => toggleIdField(logSet.id, path)}
             />
           )}
         </div>
@@ -369,7 +372,11 @@ export function LogBrowser({ viewId, logSetId }: Props) {
               className="h-8 pl-7"
             />
           </div>
-          <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setImportOpen(true, resolvedSetId ?? "new")}
+          >
             <Plus className="size-3.5" />
             Import
           </Button>
@@ -399,9 +406,10 @@ export function LogBrowser({ viewId, logSetId }: Props) {
               <p className="text-sm text-zinc-300">This source is empty.</p>
               <p className="max-w-md text-[13px] text-zinc-500">
                 Drop a CSV (JSON in a cell, or one JSON blob per row) or a JSON/JSONL file. Identical
-                payloads are skipped using a SHA-256 hash map so duplicates never sit in memory twice.
+                payloads already in this source are skipped; the same log can still exist in another
+                source.
               </p>
-              <Button onClick={() => setImportOpen(true)}>Import logs</Button>
+              <Button onClick={() => setImportOpen(true, resolvedSetId ?? "new")}>Import logs</Button>
             </div>
           ) : columns.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">

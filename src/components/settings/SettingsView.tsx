@@ -97,8 +97,8 @@ export function SettingsView() {
           <div>
             <Label>Duplicate detection</Label>
             <p className="text-[12px] text-muted-foreground">
-              A hash map keyed by SHA-256 of the canonical JSON. Lookup is O(1); the map is a few
-              dozen bytes per log, cheaper than storing a second copy of the payload.
+              Within a source, a SHA-256 hash of the canonical JSON skips a second copy of the same
+              payload. The same log can still be imported into a different source.
             </p>
           </div>
         </div>

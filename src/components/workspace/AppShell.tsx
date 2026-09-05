@@ -5,7 +5,9 @@ import { LogBrowser } from "@/components/browser/LogBrowser";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { ImportDialog } from "@/components/import/ImportDialog";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { CanvasGroupView } from "@/components/workspace/CanvasGroupView";
 import { Sidebar } from "@/components/workspace/Sidebar";
+import { SourceGroupView } from "@/components/workspace/SourceGroupView";
 import { TabBar } from "@/components/workspace/TabBar";
 import { Welcome } from "@/components/workspace/Welcome";
 import { useProjectStore } from "@/lib/store";
@@ -99,6 +101,10 @@ export function AppShell() {
                 <LogBrowser key={active.logSetId} logSetId={active.logSetId} />
               ) : active?.kind === "browser" ? (
                 <LogBrowser key={active.viewId} viewId={active.viewId} />
+              ) : active?.kind === "sourceGroup" ? (
+                <SourceGroupView key={active.sourceGroupId} sourceGroupId={active.sourceGroupId} />
+              ) : active?.kind === "canvasGroup" ? (
+                <CanvasGroupView key={active.canvasGroupId} canvasGroupId={active.canvasGroupId} />
               ) : active?.kind === "settings" ? (
                 <SettingsView />
               ) : (

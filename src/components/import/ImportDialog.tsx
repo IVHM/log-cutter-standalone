@@ -32,12 +32,22 @@ export function ImportDialog() {
   const importRows = useProjectStore((s) => s.importRows);
   const queuedFile = useProjectStore((s) => s.queuedImportFile);
   const queueImportFile = useProjectStore((s) => s.queueImportFile);
+  const importTarget = useProjectStore((s) => s.importTargetLogSetId);
   const [detected, setDetected] = useState<DetectedFile | null>(null);
   const [jsonColumn, setJsonColumn] = useState<string | "none">("none");
   const [logSetId, setLogSetId] = useState<string | "new">("new");
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const targetEmpty =
+    logSetId !== "new" && !(project?.logs.some((log) => log.logSetId === logSetId) ?? false);
+  const showName = logSetId === "new" || targetEmpty;
+
+  useEffect(() => {
+    if (!open) return;
+    setLogSetId(importTarget && importTarget !== "new" ? importTarget : "new");
+  }, [open, importTarget]);
 
   async function onFiles(files: FileList | File[]) {
     const file = files[0];
@@ -48,7 +58,6 @@ export function ImportDialog() {
       setDetected(result);
       setJsonColumn(result.suggestedJsonColumn ?? (result.kind === "csv" ? "none" : "json"));
       setNewName(file.name.replace(/\.[^.]+$/, ""));
-      if (project?.logSets.length) setLogSetId("new");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not read that file.");
     }
@@ -111,7 +120,7 @@ export function ImportDialog() {
           <DialogTitle>Import JSON logs</DialogTitle>
           <DialogDescription>
             Drop a CSV with JSON in a cell, a CSV of flat fields, a JSON array, or JSONL. Duplicate
-            payloads are detected with SHA-256 and skipped.
+            payloads already in the destination source are skipped.
           </DialogDescription>
         </DialogHeader>
 
@@ -168,9 +177,9 @@ export function ImportDialog() {
                 </Select>
               </div>
             </div>
-            {logSetId === "new" ? (
+            {showName ? (
               <div className="space-y-1.5">
-                <Label>New source name</Label>
+                <Label>{logSetId === "new" ? "New source name" : "Source name"}</Label>
                 <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
               </div>
             ) : null}

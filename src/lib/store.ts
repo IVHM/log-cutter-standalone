@@ -17,6 +17,13 @@ import {
 import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
 import { emptyFilter } from "./filter";
 import { hashIndexFromLogs } from "./fields";
+import {
+  moveCanvasToGroup as placeCanvasInGroup,
+  moveSourceToGroup as placeSourceInGroup,
+  nextGroupName,
+  removeCanvasFromGroups,
+  removeSourceFromGroups,
+} from "./groups";
 import { toLogRecords, type ParsedRow } from "./import-parse";
 import { normalizeProject, projectNormalizedDirty } from "./normalize";
 import {
@@ -56,8 +63,9 @@ type Store = {
   project: Project | null;
   projects: ProjectSummary[];
   importOpen: boolean;
+  importTargetLogSetId: string | "new" | null;
   queuedImportFile: File | null;
-  setImportOpen: (open: boolean) => void;
+  setImportOpen: (open: boolean, target?: string | "new") => void;
   queueImportFile: (file: File | null) => void;
 
   hydrate: () => Promise<void>;
@@ -115,6 +123,23 @@ type Store = {
   updateView: (id: string, patch: Partial<BrowserView>) => void;
   deleteView: (id: string) => void;
 
+  createSourceGroup: () => string;
+  renameSourceGroup: (id: string, name: string) => void;
+  deleteSourceGroup: (id: string) => void;
+  moveSourceToGroup: (sourceId: string, groupId: string | null) => void;
+  createCanvasGroup: () => string;
+  renameCanvasGroup: (id: string, name: string) => void;
+  deleteCanvasGroup: (id: string) => void;
+  moveCanvasToGroup: (canvasId: string, groupId: string | null) => void;
+  createIdLink: (groupId: string, label?: string) => string;
+  updateIdLink: (
+    groupId: string,
+    linkId: string,
+    patch: { label?: string; bindings?: Record<string, string> },
+  ) => void;
+  deleteIdLink: (groupId: string, linkId: string) => void;
+  toggleIdField: (sourceId: string, path: string) => void;
+
   updateSettings: (patch: Partial<ProjectSettings>) => void;
 };
 
@@ -122,6 +147,8 @@ export type SidebarTarget =
   | { type: "canvas"; id: string }
   | { type: "view"; id: string }
   | { type: "logSet"; id: string }
+  | { type: "sourceGroup"; id: string }
+  | { type: "canvasGroup"; id: string }
   | { type: "settings" };
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -138,6 +165,7 @@ function emptyLogSet(id: string, name: string, now: number, sourceFile?: string)
     defaultPinnedPaths: [],
     hiddenPaths: [],
     schemaFields: [],
+    idFieldPaths: [],
   };
 }
 
@@ -165,6 +193,8 @@ function emptyProject(name: string): Project {
         edges: [],
       },
     ],
+    sourceGroups: [],
+    canvasGroups: [],
     settings: { ...DEFAULT_SETTINGS },
     openTabs: [{ id: canvasTabId, kind: "canvas", canvasId }],
     activeTabId: canvasTabId,
@@ -200,6 +230,8 @@ function upsertTab(project: Project, tab: Tab, active = true): Project {
     if (t.kind === "canvas" && tab.kind === "canvas") return t.canvasId === tab.canvasId;
     if (t.kind === "source" && tab.kind === "source") return t.logSetId === tab.logSetId;
     if (t.kind === "browser" && tab.kind === "browser") return t.viewId === tab.viewId;
+    if (t.kind === "sourceGroup" && tab.kind === "sourceGroup") return t.sourceGroupId === tab.sourceGroupId;
+    if (t.kind === "canvasGroup" && tab.kind === "canvasGroup") return t.canvasGroupId === tab.canvasGroupId;
     return t.kind === "settings" && tab.kind === "settings";
   });
   if (existing) {
@@ -220,9 +252,27 @@ export const useProjectStore = create<Store>((set, get) => ({
   project: null,
   projects: [],
   importOpen: false,
+  importTargetLogSetId: null,
   queuedImportFile: null,
-  setImportOpen: (open) => set({ importOpen: open }),
-  queueImportFile: (file) => set({ queuedImportFile: file, importOpen: file ? true : get().importOpen }),
+  setImportOpen: (open, target) =>
+    set({
+      importOpen: open,
+      importTargetLogSetId: open ? (target ?? "new") : null,
+    }),
+  queueImportFile: (file) => {
+    if (!file) {
+      set({ queuedImportFile: null });
+      return;
+    }
+    const project = get().project;
+    const tab = project?.openTabs.find((t) => t.id === project.activeTabId);
+    let target: string | "new" = "new";
+    if (tab?.kind === "source" && project) {
+      const empty = !project.logs.some((log) => log.logSetId === tab.logSetId);
+      if (empty) target = tab.logSetId;
+    }
+    set({ queuedImportFile: file, importOpen: true, importTargetLogSetId: target });
+  },
 
   hydrate: async () => {
     try {
@@ -353,6 +403,12 @@ export const useProjectStore = create<Store>((set, get) => ({
       if (item.type === "settings") {
         return upsertTab(p, { id: nanoid(), kind: "settings" });
       }
+      if (item.type === "sourceGroup") {
+        return upsertTab(p, { id: nanoid(), kind: "sourceGroup", sourceGroupId: item.id });
+      }
+      if (item.type === "canvasGroup") {
+        return upsertTab(p, { id: nanoid(), kind: "canvasGroup", canvasGroupId: item.id });
+      }
       return upsertTab(p, { id: nanoid(), kind: "source", logSetId: item.id });
     });
   },
@@ -408,6 +464,7 @@ export const useProjectStore = create<Store>((set, get) => ({
       return {
         ...p,
         canvases,
+        canvasGroups: removeCanvasFromGroups(p.canvasGroups ?? [], id),
         openTabs,
         lastCanvasId: p.lastCanvasId === id ? (canvases[0]?.id ?? null) : p.lastCanvasId,
         activeTabId:
@@ -577,10 +634,15 @@ export const useProjectStore = create<Store>((set, get) => ({
 
   createLogSet: (name) => {
     const id = nanoid();
-    patchProject(set, get, (p) => ({
-      ...p,
-      logSets: [...p.logSets, emptyLogSet(id, name.trim() || "Source", Date.now())],
-    }));
+    patchProject(set, get, (p) =>
+      upsertTab(
+        {
+          ...p,
+          logSets: [...p.logSets, emptyLogSet(id, name.trim() || "New source", Date.now())],
+        },
+        { id: nanoid(), kind: "source", logSetId: id },
+      ),
+    );
     return id;
   },
 
@@ -621,6 +683,7 @@ export const useProjectStore = create<Store>((set, get) => ({
             !(t.kind === "browser" && removedViewIds.has(t.viewId)) &&
             !(t.kind === "source" && t.logSetId === id),
         ),
+        sourceGroups: removeSourceFromGroups(p.sourceGroups ?? [], id),
       };
     });
   },
@@ -633,7 +696,7 @@ export const useProjectStore = create<Store>((set, get) => ({
       logSetId: setId,
       sourceFile,
       dedupeMode: project.settings.dedupeMode,
-      existingHashes: project.hashIndex,
+      existingHashes: hashIndexFromLogs(project.logs.filter((log) => log.logSetId === setId)),
     });
     const withIds = records.map((r) => ({ ...r, id: nanoid() }));
     await appendLogs(project.id, withIds);
@@ -656,6 +719,8 @@ export const useProjectStore = create<Store>((set, get) => ({
           ? s
           : {
               ...s,
+              name: firstPopulate && name.trim() ? name.trim() : s.name,
+              sourceFile: firstPopulate ? (sourceFile ?? s.sourceFile) : (s.sourceFile ?? sourceFile),
               schemaFields,
               columns: s.columns.length === 0 ? suggested : s.columns,
               headerPaths:
@@ -750,6 +815,178 @@ export const useProjectStore = create<Store>((set, get) => ({
       ...p,
       views: p.views.filter((v) => v.id !== id),
       openTabs: p.openTabs.filter((t) => !(t.kind === "browser" && t.viewId === id)),
+    }));
+  },
+
+  createSourceGroup: () => {
+    const id = nanoid();
+    patchProject(set, get, (p) => {
+      const group = {
+        id,
+        name: nextGroupName(p.sourceGroups ?? []),
+        sourceIds: [] as string[],
+        idLinks: [],
+      };
+      return upsertTab(
+        { ...p, sourceGroups: [...(p.sourceGroups ?? []), group] },
+        { id: nanoid(), kind: "sourceGroup", sourceGroupId: id },
+      );
+    });
+    return id;
+  },
+
+  renameSourceGroup: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    patchProject(set, get, (p) => ({
+      ...p,
+      sourceGroups: (p.sourceGroups ?? []).map((g) => (g.id === id ? { ...g, name: trimmed } : g)),
+    }));
+  },
+
+  deleteSourceGroup: (id) => {
+    patchProject(set, get, (p) => {
+      const openTabs = p.openTabs.filter((t) => !(t.kind === "sourceGroup" && t.sourceGroupId === id));
+      return {
+        ...p,
+        sourceGroups: (p.sourceGroups ?? []).filter((g) => g.id !== id),
+        openTabs,
+        activeTabId:
+          p.openTabs.find((t) => t.id === p.activeTabId && t.kind === "sourceGroup" && t.sourceGroupId === id)
+            ? (openTabs[openTabs.length - 1]?.id ?? null)
+            : p.activeTabId,
+      };
+    });
+  },
+
+  moveSourceToGroup: (sourceId, groupId) => {
+    patchProject(set, get, (p) => ({
+      ...p,
+      sourceGroups: placeSourceInGroup(p.sourceGroups ?? [], sourceId, groupId),
+    }));
+  },
+
+  createCanvasGroup: () => {
+    const id = nanoid();
+    patchProject(set, get, (p) => {
+      const group = {
+        id,
+        name: nextGroupName(p.canvasGroups ?? []),
+        canvasIds: [] as string[],
+      };
+      return upsertTab(
+        { ...p, canvasGroups: [...(p.canvasGroups ?? []), group] },
+        { id: nanoid(), kind: "canvasGroup", canvasGroupId: id },
+      );
+    });
+    return id;
+  },
+
+  renameCanvasGroup: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    patchProject(set, get, (p) => ({
+      ...p,
+      canvasGroups: (p.canvasGroups ?? []).map((g) => (g.id === id ? { ...g, name: trimmed } : g)),
+    }));
+  },
+
+  deleteCanvasGroup: (id) => {
+    patchProject(set, get, (p) => {
+      const openTabs = p.openTabs.filter((t) => !(t.kind === "canvasGroup" && t.canvasGroupId === id));
+      return {
+        ...p,
+        canvasGroups: (p.canvasGroups ?? []).filter((g) => g.id !== id),
+        openTabs,
+        activeTabId:
+          p.openTabs.find((t) => t.id === p.activeTabId && t.kind === "canvasGroup" && t.canvasGroupId === id)
+            ? (openTabs[openTabs.length - 1]?.id ?? null)
+            : p.activeTabId,
+      };
+    });
+  },
+
+  moveCanvasToGroup: (canvasId, groupId) => {
+    patchProject(set, get, (p) => ({
+      ...p,
+      canvasGroups: placeCanvasInGroup(p.canvasGroups ?? [], canvasId, groupId),
+    }));
+  },
+
+  createIdLink: (groupId, label) => {
+    const id = nanoid();
+    patchProject(set, get, (p) => ({
+      ...p,
+      sourceGroups: (p.sourceGroups ?? []).map((g) =>
+        g.id !== groupId
+          ? g
+          : {
+              ...g,
+              idLinks: [...g.idLinks, { id, label: label?.trim() || "ID", bindings: {} }],
+            },
+      ),
+    }));
+    return id;
+  },
+
+  updateIdLink: (groupId, linkId, patch) => {
+    patchProject(set, get, (p) => {
+      const group = (p.sourceGroups ?? []).find((g) => g.id === groupId);
+      const current = group?.idLinks.find((l) => l.id === linkId);
+      const nextBindings = patch.bindings ?? current?.bindings ?? {};
+      const allowed = new Set(group?.sourceIds ?? []);
+      const bindings = Object.fromEntries(
+        Object.entries(nextBindings).filter(([sid, path]) => allowed.has(sid) && path),
+      );
+      const logSets = p.logSets.map((s) => {
+        const bound = bindings[s.id];
+        if (!bound || (s.idFieldPaths ?? []).includes(bound)) return s;
+        return { ...s, idFieldPaths: [...(s.idFieldPaths ?? []), bound] };
+      });
+      return {
+        ...p,
+        logSets,
+        sourceGroups: (p.sourceGroups ?? []).map((g) =>
+          g.id !== groupId
+            ? g
+            : {
+                ...g,
+                idLinks: g.idLinks.map((l) =>
+                  l.id !== linkId
+                    ? l
+                    : {
+                        ...l,
+                        label: patch.label !== undefined ? patch.label.trim() || l.label : l.label,
+                        bindings,
+                      },
+                ),
+              },
+        ),
+      };
+    });
+  },
+
+  deleteIdLink: (groupId, linkId) => {
+    patchProject(set, get, (p) => ({
+      ...p,
+      sourceGroups: (p.sourceGroups ?? []).map((g) =>
+        g.id !== groupId ? g : { ...g, idLinks: g.idLinks.filter((l) => l.id !== linkId) },
+      ),
+    }));
+  },
+
+  toggleIdField: (sourceId, path) => {
+    patchProject(set, get, (p) => ({
+      ...p,
+      logSets: p.logSets.map((s) => {
+        if (s.id !== sourceId) return s;
+        const paths = s.idFieldPaths ?? [];
+        const has = paths.includes(path);
+        return {
+          ...s,
+          idFieldPaths: has ? paths.filter((item) => item !== path) : [...paths, path],
+        };
+      }),
     }));
   },
 

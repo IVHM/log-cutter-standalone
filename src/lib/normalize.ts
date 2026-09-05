@@ -1,4 +1,5 @@
 import { emptyFilter, filterHasClauses } from "./filter";
+import { normalizeCanvasGroups, normalizeSourceGroups } from "./groups";
 import type { BrowserView, LogSet, Project, Tab } from "./types";
 import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, SCHEMA_VERSION } from "./types";
 
@@ -14,6 +15,7 @@ export function normalizeLogSet(set: LogSet): LogSet {
     defaultPinnedPaths: Array.isArray(set.defaultPinnedPaths) ? set.defaultPinnedPaths : [],
     hiddenPaths: Array.isArray(set.hiddenPaths) ? set.hiddenPaths : [],
     schemaFields: Array.isArray(set.schemaFields) ? set.schemaFields : [],
+    idFieldPaths: Array.isArray(set.idFieldPaths) ? set.idFieldPaths : [],
   };
 }
 
@@ -54,6 +56,8 @@ function tabKey(tab: Tab): string {
   if (tab.kind === "canvas") return `canvas:${tab.canvasId}`;
   if (tab.kind === "source") return `source:${tab.logSetId}`;
   if (tab.kind === "browser") return `browser:${tab.viewId}`;
+  if (tab.kind === "sourceGroup") return `sourceGroup:${tab.sourceGroupId}`;
+  if (tab.kind === "canvasGroup") return `canvasGroup:${tab.canvasGroupId}`;
   return "settings";
 }
 
@@ -83,6 +87,13 @@ export function normalizeProject(project: Project): Project {
       const sourceId = next.logSetId;
       if (!logSets.some((s) => s.id === sourceId)) continue;
     }
+    if (next.kind === "sourceGroup" && !(project.sourceGroups ?? []).some((g) => g.id === next.sourceGroupId)) {
+      continue;
+    }
+    if (next.kind === "canvasGroup" && !(project.canvasGroups ?? []).some((g) => g.id === next.canvasGroupId)) {
+      continue;
+    }
+    if (next.kind === "canvas" && !project.canvases.some((c) => c.id === next.canvasId)) continue;
     const key = tabKey(next);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -102,11 +113,22 @@ export function normalizeProject(project: Project): Project {
     }
   }
 
+  const sourceGroups = normalizeSourceGroups(
+    project.sourceGroups,
+    new Set(logSets.map((s) => s.id)),
+  );
+  const canvasGroups = normalizeCanvasGroups(
+    project.canvasGroups,
+    new Set(project.canvases.map((c) => c.id)),
+  );
+
   return {
     ...project,
     schemaVersion: project.schemaVersion ?? SCHEMA_VERSION,
     logSets,
     views: keptViews,
+    sourceGroups,
+    canvasGroups,
     openTabs,
     activeTabId,
   };
@@ -116,6 +138,8 @@ export function projectNormalizedDirty(before: Project, after: Project): boolean
   return (
     JSON.stringify(before.views) !== JSON.stringify(after.views) ||
     JSON.stringify(before.openTabs) !== JSON.stringify(after.openTabs) ||
-    JSON.stringify(before.logSets) !== JSON.stringify(after.logSets)
+    JSON.stringify(before.logSets) !== JSON.stringify(after.logSets) ||
+    JSON.stringify(before.sourceGroups ?? []) !== JSON.stringify(after.sourceGroups) ||
+    JSON.stringify(before.canvasGroups ?? []) !== JSON.stringify(after.canvasGroups)
   );
 }

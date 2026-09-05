@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderClosed, Funnel, LayoutDashboard, Settings, X } from "lucide-react";
+import { FolderClosed, Funnel, Layers, LayoutDashboard, Settings, X } from "lucide-react";
 import { useProjectStore } from "@/lib/store";
 import type { Tab } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -55,6 +55,7 @@ function TabIcon({ tab }: { tab: Tab }) {
   if (tab.kind === "canvas") return <LayoutDashboard className="size-3 shrink-0" />;
   if (tab.kind === "source") return <FolderClosed className="size-3 shrink-0" />;
   if (tab.kind === "browser") return <Funnel className="size-3 shrink-0" />;
+  if (tab.kind === "sourceGroup" || tab.kind === "canvasGroup") return <Layers className="size-3 shrink-0" />;
   return <Settings className="size-3 shrink-0" />;
 }
 
@@ -67,6 +68,12 @@ function tabTitle(project: NonNullable<ReturnType<typeof useProjectStore.getStat
   }
   if (tab.kind === "browser") {
     return project.views.find((v) => v.id === tab.viewId)?.name ?? "View";
+  }
+  if (tab.kind === "sourceGroup") {
+    return project.sourceGroups.find((g) => g.id === tab.sourceGroupId)?.name ?? "Group";
+  }
+  if (tab.kind === "canvasGroup") {
+    return project.canvasGroups.find((g) => g.id === tab.canvasGroupId)?.name ?? "Group";
   }
   return "Settings";
 }

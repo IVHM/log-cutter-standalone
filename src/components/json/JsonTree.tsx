@@ -26,6 +26,8 @@ type Props = {
   onTogglePin: (path: string) => void;
   onToggleCollapse: (path: string) => void;
   onFindSameValue?: (query: SameValueQuery) => void;
+  onDynamicLink?: (query: SameValueQuery) => void;
+  isLinkedPath?: (path: string) => boolean;
   depth?: number;
 };
 
@@ -38,6 +40,8 @@ export function JsonTree({
   onTogglePin,
   onToggleCollapse,
   onFindSameValue,
+  onDynamicLink,
+  isLinkedPath,
   depth = 0,
 }: Props) {
   if (path && isHiddenPath(path, hiddenPaths)) return null;
@@ -56,7 +60,13 @@ export function JsonTree({
       >
         <span className={cn("font-mono text-[12px] break-all", TYPE_CLASS[type])}>
           {onFindSameValue && path ? (
-            <FindSameValueHit path={path} value={value} onFind={onFindSameValue}>
+            <FindSameValueHit
+              path={path}
+              value={value}
+              onFind={onFindSameValue}
+              onLink={onDynamicLink}
+              isLinkedPath={isLinkedPath}
+            >
               {type === "string" ? JSON.stringify(formatScalar(value, 120)) : formatScalar(value, 120)}
             </FindSameValueHit>
           ) : type === "string" ? (
@@ -109,6 +119,8 @@ export function JsonTree({
             onTogglePin={onTogglePin}
             onToggleCollapse={onToggleCollapse}
             onFindSameValue={onFindSameValue}
+            onDynamicLink={onDynamicLink}
+            isLinkedPath={isLinkedPath}
             depth={path === "" ? depth : depth + 1}
           />
         ))}

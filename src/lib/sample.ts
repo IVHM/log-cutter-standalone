@@ -132,6 +132,7 @@ export async function buildSampleProject(): Promise<Project> {
     defaultPinnedPaths: ["ts", "level", "event"],
     hiddenPaths: [],
     schemaFields: [],
+    idFieldPaths: [],
   };
 
   const logs: LogRecord[] = [];
@@ -261,6 +262,8 @@ export async function buildSampleProject(): Promise<Project> {
     hashIndex,
     views: [errorView],
     canvases: [canvas],
+    sourceGroups: [],
+    canvasGroups: [],
     settings: { ...DEFAULT_SETTINGS },
     openTabs: [canvasTab, sourceTab],
     activeTabId: canvasTab.id,

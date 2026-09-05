@@ -59,6 +59,27 @@ export type LogSet = {
   hiddenPaths: string[];
   /** Incremental path catalog for this source. Do not re-walk all docs for schema UI. */
   schemaFields: SchemaField[];
+  /** Paths marked as identity fields for IdLinks / 🔗. */
+  idFieldPaths: string[];
+};
+
+export type IdLink = {
+  id: string;
+  label: string;
+  bindings: Record<string, string>;
+};
+
+export type SourceGroup = {
+  id: string;
+  name: string;
+  sourceIds: string[];
+  idLinks: IdLink[];
+};
+
+export type CanvasGroup = {
+  id: string;
+  name: string;
+  canvasIds: string[];
 };
 
 export type FilterOp =
@@ -139,6 +160,8 @@ export type Tab =
   | { id: string; kind: "canvas"; canvasId: string }
   | { id: string; kind: "source"; logSetId: string }
   | { id: string; kind: "browser"; viewId: string }
+  | { id: string; kind: "sourceGroup"; sourceGroupId: string }
+  | { id: string; kind: "canvasGroup"; canvasGroupId: string }
   | { id: string; kind: "settings" };
 
 export type DedupeMode = "payload" | "payload+meta";
@@ -161,6 +184,8 @@ export type ProjectDoc = {
   logSets: LogSet[];
   views: BrowserView[];
   canvases: Canvas[];
+  sourceGroups: SourceGroup[];
+  canvasGroups: CanvasGroup[];
   settings: ProjectSettings;
   openTabs: Tab[];
   activeTabId: string | null;
@@ -171,7 +196,7 @@ export type ProjectDoc = {
 export type Project = ProjectDoc & {
   /** Working set. Not stored on the projects row after schema v2. */
   logs: LogRecord[];
-  /** Derived in memory from logs; dedup also queries [projectId+hash]. */
+  /** Derived in memory from logs. Import dedup uses hashes in the destination source only. */
   hashIndex: Record<string, string>;
 };
 
