@@ -1,7 +1,7 @@
 "use client";
 
 import { Columns3, Plus, Search, Trash2, LayoutDashboard } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { toast } from "sonner";
 import { FilterBuilder } from "@/components/browser/FilterBuilder";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,15 @@ import { logsInView } from "@/lib/views";
 
 type Props = { viewId?: string; logSetId?: string };
 
+const DEFAULT_SCHEMA_WIDTH = 280;
+const MIN_SCHEMA_WIDTH = 180;
+
+function clampSchemaWidth(px: number, total: number) {
+  const max = Math.floor(total / 2);
+  const min = Math.min(MIN_SCHEMA_WIDTH, max);
+  return Math.min(max, Math.max(min, Math.round(px)));
+}
+
 export function LogBrowser({ viewId, logSetId }: Props) {
   const project = useProjectStore((s) => s.project);
   const updateView = useProjectStore((s) => s.updateView);
@@ -41,6 +50,13 @@ export function LogBrowser({ viewId, logSetId }: Props) {
   const [placeOpen, setPlaceOpen] = useState(false);
   const [placeIds, setPlaceIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const splitRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const handleRef = useRef<HTMLButtonElement>(null);
+  const schemaWidthRef = useRef(DEFAULT_SCHEMA_WIDTH);
+  const dragXRef = useRef(0);
+  const dragRafRef = useRef(0);
+  const draggingRef = useRef(false);
 
   const view = viewId ? project?.views.find((v) => v.id === viewId) : undefined;
   const resolvedSetId = view?.logSetId ?? logSetId;
@@ -67,12 +83,51 @@ export function LogBrowser({ viewId, logSetId }: Props) {
   const schemaTree = useMemo(() => schemaToTree(schema), [schema]);
   const fieldPaths = useMemo(() => schema.map((f) => f.path), [schema]);
 
+  function paintSchemaWidth(px: number) {
+    schemaWidthRef.current = px;
+    if (asideRef.current) asideRef.current.style.width = `${px}px`;
+  }
+
+  function schemaWidthFromClientX(clientX: number) {
+    const el = splitRef.current;
+    if (!el) return schemaWidthRef.current;
+    const rect = el.getBoundingClientRect();
+    return clampSchemaWidth(clientX - rect.left, rect.width);
+  }
+
+  function stopSchemaResize() {
+    draggingRef.current = false;
+    if (dragRafRef.current) {
+      cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = 0;
+    }
+    handleRef.current?.removeAttribute("data-resizing");
+    if (asideRef.current) asideRef.current.style.willChange = "";
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  }
+
   useEffect(() => {
     if (!logSet || isView || logSet.columns.length > 0 || schema.length === 0) return;
     const suggested = suggestColumns(schema, scopedLogs.length);
     if (suggested.length === 0) return;
     updateLogSet(logSet.id, { columns: suggested });
   }, [isView, logSet, schema, scopedLogs.length, updateLogSet]);
+
+  useEffect(() => {
+    const el = splitRef.current;
+    if (!el) return;
+    const clampToHalf = () => {
+      if (draggingRef.current) return;
+      paintSchemaWidth(clampSchemaWidth(schemaWidthRef.current, el.getBoundingClientRect().width));
+    };
+    clampToHalf();
+    const observer = new ResizeObserver(clampToHalf);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [logSet?.id, viewId]);
+
+  useEffect(() => () => stopSchemaResize(), []);
 
   const columns = view ? view.columns : (logSet?.columns ?? []);
   const sortBy = view ? view.sortBy : logSet?.sortBy;
@@ -150,9 +205,52 @@ export function LogBrowser({ viewId, logSetId }: Props) {
     setPlaceOpen(true);
   }
 
+  function applySchemaWidth(clientX: number) {
+    paintSchemaWidth(schemaWidthFromClientX(clientX));
+  }
+
+  function onResizePointerDown(e: PointerEvent<HTMLButtonElement>) {
+    if (e.button !== 0) return;
+    e.currentTarget.focus();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer capture needs a real pointer */
+    }
+    draggingRef.current = true;
+    handleRef.current?.setAttribute("data-resizing", "true");
+    if (asideRef.current) asideRef.current.style.willChange = "width";
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    applySchemaWidth(e.clientX);
+  }
+
+  function onResizePointerMove(e: PointerEvent<HTMLButtonElement>) {
+    if (!draggingRef.current) return;
+    dragXRef.current = e.clientX;
+    if (dragRafRef.current) return;
+    dragRafRef.current = requestAnimationFrame(() => {
+      dragRafRef.current = 0;
+      applySchemaWidth(dragXRef.current);
+    });
+  }
+
+  function onResizePointerUp(e: PointerEvent<HTMLButtonElement>) {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    applySchemaWidth(e.clientX);
+    stopSchemaResize();
+  }
+
   return (
     <div className="flex h-full min-h-0">
-      <aside className="flex w-[280px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+      <div ref={splitRef} className="flex min-h-0 min-w-0 flex-1">
+      <aside
+        ref={asideRef}
+        className="flex shrink-0 flex-col contain-layout bg-zinc-950"
+        style={{ width: schemaWidthRef.current }}
+      >
         <div className="border-b border-zinc-800 px-3 py-2">
           <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
             <Columns3 className="size-3.5" />
@@ -163,13 +261,14 @@ export function LogBrowser({ viewId, logSetId }: Props) {
             Pin and hide apply to canvas cards from this source.
           </p>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-2">
+        <div className="flex min-h-0 flex-1 flex-col">
           {schema.length === 0 ? (
             <p className="px-1 py-6 text-center text-[12px] text-zinc-500">
               No fields yet. Import a CSV or JSONL to populate this source.
             </p>
           ) : (
             <SchemaTree
+              className="h-full"
               nodes={schemaTree}
               columns={columns}
               defaultPins={defaultPins}
@@ -182,6 +281,28 @@ export function LogBrowser({ viewId, logSetId }: Props) {
           )}
         </div>
       </aside>
+      <button
+        ref={handleRef}
+        type="button"
+        aria-label="Resize schema"
+        className={cn(
+          "relative z-10 h-full min-h-0 w-px min-w-0 shrink-0 appearance-none touch-none select-none border-0 bg-zinc-800 p-0 outline-none",
+          "before:absolute before:inset-y-0 before:-left-1.5 before:w-3 before:cursor-col-resize before:content-['']",
+          "hover:bg-zinc-600 data-[resizing=true]:w-[2px] data-[resizing=true]:bg-zinc-400 data-[resizing=true]:shadow-[0_0_10px_rgba(255,255,255,0.22)]",
+        )}
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          const el = splitRef.current;
+          if (!el) return;
+          const delta = e.key === "ArrowRight" ? 16 : -16;
+          paintSchemaWidth(clampSchemaWidth(schemaWidthRef.current + delta, el.getBoundingClientRect().width));
+        }}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
@@ -324,6 +445,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
           </span>
           <Badge variant="secondary">{selected.size} selected</Badge>
         </div>
+      </div>
       </div>
 
       {preview ? (
