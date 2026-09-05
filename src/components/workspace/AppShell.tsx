@@ -15,6 +15,7 @@ export function AppShell() {
   const project = useProjectStore((s) => s.project);
   const dirty = useProjectStore((s) => s.dirty);
   const saving = useProjectStore((s) => s.saving);
+  const migrateProgress = useProjectStore((s) => s.migrateProgress);
   const saveNow = useProjectStore((s) => s.saveNow);
   const queueImportFile = useProjectStore((s) => s.queueImportFile);
 
@@ -64,10 +65,27 @@ export function AppShell() {
           <span className="truncate text-[10px] text-zinc-500">A json/csv log explorer</span>
         </div>
         <span className="text-[11px] text-zinc-600">
-          {saving ? "Saving…" : dirty ? "Unsaved" : project ? "Saved locally" : ""}
+          {migrateProgress
+            ? "Upgrading storage…"
+            : saving
+              ? "Saving…"
+              : dirty
+                ? "Unsaved"
+                : project
+                  ? "Saved locally"
+                  : ""}
         </span>
       </header>
-      {!project ? (
+      {migrateProgress ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-zinc-950 px-6 text-center">
+          <p className="text-sm text-zinc-200">Upgrading local storage to hybrid fields…</p>
+          <p className="text-[13px] text-zinc-500">
+            {migrateProgress.total > 0
+              ? `${migrateProgress.done} / ${migrateProgress.total} logs`
+              : "Starting…"}
+          </p>
+        </div>
+      ) : !project ? (
         <Welcome />
       ) : (
         <div className="flex min-h-0 flex-1">

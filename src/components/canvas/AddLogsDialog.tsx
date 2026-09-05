@@ -14,10 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatScalar, getAtPath } from "@/lib/json-path";
-import { coveragePercent, inferSchema, suggestColumns, typeLabel } from "@/lib/schema";
+import { VirtualLogTable } from "@/components/browser/VirtualLogTable";
+import { coveragePercent, schemaForSource, suggestColumns, typeLabel } from "@/lib/schema";
 import { useProjectStore } from "@/lib/store";
-import type { LogRecord } from "@/lib/types";
+import type { SchemaField } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -39,7 +39,8 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
     return project.logs.filter((l) => l.logSetId === setId);
   }, [project, setId]);
 
-  const schema = useMemo(() => inferSchema(logs), [logs]);
+  const logSet = project?.logSets.find((s) => s.id === setId);
+  const schema = useMemo(() => schemaForSource(logSet, logs), [logSet, logs]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -53,7 +54,8 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
   function pickSet(id: string) {
     setSetId(id);
     const setLogs = project?.logs.filter((l) => l.logSetId === id) ?? [];
-    setColumns(suggestColumns(inferSchema(setLogs), setLogs.length));
+    const set = project?.logSets.find((s) => s.id === id);
+    setColumns(suggestColumns(schemaForSource(set, setLogs), setLogs.length));
   }
 
   function close(next: boolean) {
@@ -82,8 +84,6 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
       current.includes(path) ? current.filter((c) => c !== path) : [...current, path],
     );
   }
-
-  const allSelected = filtered.length > 0 && filtered.every((l) => selected.has(l.id));
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -149,7 +149,7 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
                 className="pl-7"
               />
             </div>
-            <div className="max-h-[360px] overflow-auto rounded-md border border-zinc-800">
+            <div className="h-[360px] overflow-hidden rounded-md border border-zinc-800">
               {filtered.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-zinc-500">No logs match.</p>
               ) : columns.length === 0 ? (
@@ -157,60 +157,31 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
                   Choose columns to display, then select logs to add.
                 </p>
               ) : (
-                <table className="w-full text-left text-[12px]">
-                  <thead className="sticky top-0 bg-zinc-950">
-                    <tr className="border-b border-zinc-800">
-                      <th className="w-8 px-2 py-1.5">
-                        <Checkbox
-                          checked={allSelected}
-                          onCheckedChange={() => {
-                            if (allSelected) setSelected(new Set());
-                            else setSelected(new Set(filtered.map((l) => l.id)));
-                          }}
-                        />
-                      </th>
-                      {columns.map((col) => (
-                        <th key={col} className="px-2 py-1.5 font-mono text-[11px] font-medium text-zinc-400">
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((log) => (
-                      <tr
-                        key={log.id}
-                        className={cn(
-                          "cursor-pointer border-b border-zinc-900 hover:bg-zinc-900",
-                          selected.has(log.id) && "bg-sky-950/40",
-                        )}
-                        onClick={() => {
-                          const next = new Set(selected);
-                          if (next.has(log.id)) next.delete(log.id);
-                          else next.add(log.id);
-                          setSelected(next);
-                        }}
-                      >
-                        <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selected.has(log.id)}
-                            onCheckedChange={(v) => {
-                              const next = new Set(selected);
-                              if (v) next.add(log.id);
-                              else next.delete(log.id);
-                              setSelected(next);
-                            }}
-                          />
-                        </td>
-                        {columns.map((col) => (
-                          <td key={col} className="max-w-[240px] truncate px-2 py-1.5 font-mono text-zinc-200">
-                            {formatScalar(cellValue(log, col), 80)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <VirtualLogTable
+                  className="h-full"
+                  logs={filtered}
+                  columns={columns}
+                  selected={selected}
+                  onToggleSelect={(id, checked) => {
+                    const next = new Set(selected);
+                    if (checked) next.add(id);
+                    else next.delete(id);
+                    setSelected(next);
+                  }}
+                  onToggleSelectAll={() => {
+                    if (filtered.length > 0 && filtered.every((l) => selected.has(l.id))) {
+                      setSelected(new Set());
+                    } else {
+                      setSelected(new Set(filtered.map((l) => l.id)));
+                    }
+                  }}
+                  onRowClick={(log) => {
+                    const next = new Set(selected);
+                    if (next.has(log.id)) next.delete(log.id);
+                    else next.add(log.id);
+                    setSelected(next);
+                  }}
+                />
               )}
             </div>
             <Button size="lg" className="h-11 w-full text-base" onClick={add} disabled={selected.size === 0}>
@@ -224,17 +195,13 @@ export function AddLogsDialog({ open, onOpenChange, canvasId }: Props) {
   );
 }
 
-function cellValue(log: LogRecord, col: string) {
-  return col.startsWith("meta.") ? log.meta[col.slice(5)] : getAtPath(log.data, col);
-}
-
 function ColumnPicker({
   schema,
   columns,
   logCount,
   onToggle,
 }: {
-  schema: ReturnType<typeof inferSchema>;
+  schema: SchemaField[];
   columns: string[];
   logCount: number;
   onToggle: (path: string) => void;

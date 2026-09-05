@@ -18,8 +18,10 @@ import {
 import { JsonTree } from "@/components/json/JsonTree";
 import { PlaceOnCanvasDialog } from "@/components/canvas/PlaceOnCanvasDialog";
 import { emptyFilter } from "@/lib/filter";
-import { formatScalar, getAtPath } from "@/lib/json-path";
-import { coveragePercent, inferSchema, suggestColumns, typeLabel } from "@/lib/schema";
+import { formatCellValue } from "@/lib/json-path";
+import { logCellValue } from "@/lib/fields";
+import { coveragePercent, schemaForSource, suggestColumns, typeLabel } from "@/lib/schema";
+import { VirtualLogTable } from "@/components/browser/VirtualLogTable";
 import { useProjectStore } from "@/lib/store";
 import { HEADER_COLORS } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -61,7 +63,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
     });
   }, [project, resolvedSetId, view, search, scopedLogs]);
 
-  const schema = useMemo(() => inferSchema(scopedLogs), [scopedLogs]);
+  const schema = useMemo(() => schemaForSource(logSet, scopedLogs), [logSet, scopedLogs]);
   const fieldPaths = useMemo(() => schema.map((f) => f.path), [schema]);
 
   useEffect(() => {
@@ -79,10 +81,10 @@ export function LogBrowser({ viewId, logSetId }: Props) {
     const { path, dir } = sortBy;
     const copy = [...filtered];
     copy.sort((a, b) => {
-      const av = getAtPath(a.data, path) ?? a.meta[path.replace(/^meta\./, "")];
-      const bv = getAtPath(b.data, path) ?? b.meta[path.replace(/^meta\./, "")];
-      const as = av == null ? "" : String(av);
-      const bs = bv == null ? "" : String(bv);
+      const av = logCellValue(a, path);
+      const bv = logCellValue(b, path);
+      const as = formatCellValue(av, 200);
+      const bs = formatCellValue(bv, 200);
       return dir === "asc" ? as.localeCompare(bs, undefined, { numeric: true }) : bs.localeCompare(as, undefined, { numeric: true });
     });
     return copy;
@@ -96,7 +98,6 @@ export function LogBrowser({ viewId, logSetId }: Props) {
     );
   }
 
-  const allSelected = sorted.length > 0 && sorted.every((l) => selected.has(l.id));
   const preview = previewId ? project.logs.find((l) => l.id === previewId) : null;
   const sourceId = logSet.id;
   const headerPaths = logSet.headerPaths ?? [];
@@ -315,7 +316,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="flex min-h-0 flex-1 flex-col">
           {scopedLogs.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
               <p className="text-sm text-zinc-300">This source is empty.</p>
@@ -340,68 +341,25 @@ export function LogBrowser({ viewId, logSetId }: Props) {
               {view && search.trim() ? " or search" : ""}.
             </div>
           ) : (
-            <table className="w-full min-w-max border-collapse text-left text-[12px]">
-              <thead className="sticky top-0 z-10 bg-zinc-950">
-                <tr className="border-b border-zinc-800">
-                  <th className="w-8 px-2 py-1.5">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={() => {
-                        if (allSelected) setSelected(new Set());
-                        else setSelected(new Set(sorted.map((l) => l.id)));
-                      }}
-                    />
-                  </th>
-                  {columns.map((col) => (
-                    <th key={col} className="px-2 py-1.5 font-mono text-[11px] font-medium text-zinc-400">
-                      <button
-                        type="button"
-                        className="hover:text-zinc-100"
-                        onClick={() => setSort(col)}
-                      >
-                        {col}
-                        {sortBy?.path === col ? (sortBy.dir === "asc" ? " ↑" : " ↓") : ""}
-                      </button>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((log) => (
-                  <tr
-                    key={log.id}
-                    className={cn(
-                      "cursor-pointer border-b border-zinc-900 hover:bg-zinc-900/80",
-                      selected.has(log.id) && "bg-sky-950/40",
-                      previewId === log.id && "bg-zinc-900",
-                    )}
-                    onClick={() => setPreviewId(log.id)}
-                  >
-                    <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={selected.has(log.id)}
-                        onCheckedChange={(v) => {
-                          const next = new Set(selected);
-                          if (v) next.add(log.id);
-                          else next.delete(log.id);
-                          setSelected(next);
-                        }}
-                      />
-                    </td>
-                    {columns.map((col) => {
-                      const value = col.startsWith("meta.")
-                        ? log.meta[col.slice(5)]
-                        : getAtPath(log.data, col);
-                      return (
-                        <td key={col} className="max-w-[280px] truncate px-2 py-1 font-mono text-zinc-200">
-                          {formatScalar(value, 80)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <VirtualLogTable
+              logs={sorted}
+              columns={columns}
+              selected={selected}
+              previewId={previewId}
+              sortBy={sortBy}
+              onToggleSort={setSort}
+              onToggleSelect={(id, checked) => {
+                const next = new Set(selected);
+                if (checked) next.add(id);
+                else next.delete(id);
+                setSelected(next);
+              }}
+              onToggleSelectAll={() => {
+                if (sorted.length > 0 && sorted.every((l) => selected.has(l.id))) setSelected(new Set());
+                else setSelected(new Set(sorted.map((l) => l.id)));
+              }}
+              onRowClick={(log) => setPreviewId(log.id)}
+            />
           )}
         </div>
         <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1.5 text-[11px] text-zinc-500">

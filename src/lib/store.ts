@@ -1,18 +1,25 @@
 import { nanoid } from "nanoid";
 import { create } from "zustand";
 import {
+  appendLogs,
+  deleteLogs,
+  deleteLogsForSource,
   deleteProject as dbDelete,
   getLastProjectId,
   getProject,
   listProjects,
-  putProject,
+  putLogNote,
+  putProjectDoc,
+  replaceProject,
   setLastProjectId,
+  type MigrateProgress,
 } from "./db";
 import { inferBraceLayout, nextBraceDirection, reorientBracketNode } from "./brace";
 import { emptyFilter } from "./filter";
+import { hashIndexFromLogs } from "./fields";
 import { toLogRecords, type ParsedRow } from "./import-parse";
 import { normalizeProject, projectNormalizedDirty } from "./normalize";
-import { suggestColumns, inferSchema, suggestPins } from "./schema";
+import { inferSchema, mergeSchemaFromLogs, schemaForSource, suggestColumns, suggestPins } from "./schema";
 import { buildSampleProject } from "./sample";
 import type {
   AppEdge,
@@ -28,7 +35,7 @@ import type {
   Tab,
   Viewport,
 } from "./types";
-import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, DEFAULT_SETTINGS, NOTE_COLORS } from "./types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, DEFAULT_SETTINGS, NOTE_COLORS, SCHEMA_VERSION } from "./types";
 
 export type ProjectSummary = Pick<Project, "id" | "name" | "updatedAt" | "createdAt">;
 
@@ -36,6 +43,7 @@ type Store = {
   hydrated: boolean;
   dirty: boolean;
   saving: boolean;
+  migrateProgress: MigrateProgress | null;
   project: Project | null;
   projects: ProjectSummary[];
   importOpen: boolean;
@@ -119,6 +127,7 @@ function emptyLogSet(id: string, name: string, now: number, sourceFile?: string)
     columns: [],
     defaultPinnedPaths: [],
     hiddenPaths: [],
+    schemaFields: [],
   };
 }
 
@@ -132,6 +141,7 @@ function emptyProject(name: string): Project {
     name,
     createdAt: now,
     updatedAt: now,
+    schemaVersion: SCHEMA_VERSION,
     logSets: [emptyLogSet(logSetId, "Logs", now)],
     logs: [],
     hashIndex: {},
@@ -196,6 +206,7 @@ export const useProjectStore = create<Store>((set, get) => ({
   hydrated: true,
   dirty: false,
   saving: false,
+  migrateProgress: null,
   project: null,
   projects: [],
   importOpen: false,
@@ -208,31 +219,32 @@ export const useProjectStore = create<Store>((set, get) => ({
       const projects = await listProjects();
       const lastId = await getLastProjectId();
       const openId = lastId && projects.some((p) => p.id === lastId) ? lastId : projects[0]?.id;
-      const loaded = openId ? ((await getProject(openId)) ?? null) : null;
+      const loaded = openId
+        ? ((await getProject(openId, (progress) => set({ migrateProgress: progress }))) ?? null)
+        : null;
       const project = loaded ? normalizeProject(loaded) : null;
       if (loaded && project && projectNormalizedDirty(loaded, project)) {
-        await putProject(project);
+        await putProjectDoc(project);
       }
-      set({ hydrated: true, projects, project, dirty: false });
+      set({ hydrated: true, projects, project, dirty: false, migrateProgress: null });
     } catch (err) {
       console.warn("Failed to restore projects; starting empty.", err);
-      set({ hydrated: true, projects: [], project: null, dirty: false });
+      set({ hydrated: true, projects: [], project: null, dirty: false, migrateProgress: null });
     }
   },
 
   createProject: async (name) => {
     await get().saveNow();
     const project = emptyProject(name.trim() || "Untitled project");
-    await putProject(project);
-    await setLastProjectId(project.id);
+    const stored = await replaceProject(project);
+    await setLastProjectId(stored.id);
     const projects = await listProjects();
-    set({ project, projects, dirty: false });
+    set({ project: stored, projects, dirty: false });
   },
 
   loadSample: async () => {
     await get().saveNow();
-    const project = await buildSampleProject();
-    await putProject(project);
+    const project = await replaceProject(await buildSampleProject());
     await setLastProjectId(project.id);
     const projects = await listProjects();
     set({ project, projects, dirty: false });
@@ -240,10 +252,11 @@ export const useProjectStore = create<Store>((set, get) => ({
 
   openProject: async (id) => {
     await get().saveNow();
-    const raw = await getProject(id);
+    const raw = await getProject(id, (progress) => set({ migrateProgress: progress }));
+    set({ migrateProgress: null });
     if (!raw) return;
     const project = normalizeProject(raw);
-    if (projectNormalizedDirty(raw, project)) await putProject(project);
+    if (projectNormalizedDirty(raw, project)) await putProjectDoc(project);
     await setLastProjectId(id);
     set({ project, dirty: false });
   },
@@ -268,7 +281,7 @@ export const useProjectStore = create<Store>((set, get) => ({
     if (!project || !dirty) return;
     set({ saving: true });
     try {
-      await putProject(project);
+      await putProjectDoc(project);
       await setLastProjectId(project.id);
       const projects = await listProjects();
       set({ dirty: false, saving: false, projects });
@@ -280,10 +293,11 @@ export const useProjectStore = create<Store>((set, get) => ({
   exportProject: () => {
     const project = get().project;
     if (!project) return;
+    const { hashIndex: _hashIndex, ...rest } = project;
     const payload = {
       format: "json-log-explorer",
-      version: 1,
-      project,
+      version: 2,
+      project: rest,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -306,12 +320,14 @@ export const useProjectStore = create<Store>((set, get) => ({
       ...raw,
       id: nanoid(),
       updatedAt: Date.now(),
+      schemaVersion: SCHEMA_VERSION,
+      hashIndex: hashIndexFromLogs(raw.logs ?? []),
       settings: { ...DEFAULT_SETTINGS, ...raw.settings },
     };
-    await putProject(project);
-    await setLastProjectId(project.id);
+    const normalized = await replaceProject(normalizeProject(project));
+    await setLastProjectId(normalized.id);
     const projects = await listProjects();
-    set({ project: normalizeProject(project), projects, dirty: false });
+    set({ project: normalized, projects, dirty: false });
   },
 
   openItem: (item) => {
@@ -573,20 +589,18 @@ export const useProjectStore = create<Store>((set, get) => ({
   },
 
   deleteLogSet: (id) => {
+    const project = get().project;
+    if (project) void deleteLogsForSource(project.id, id);
     patchProject(set, get, (p) => {
       const logs = p.logs.filter((l) => l.logSetId !== id);
       const removed = new Set(p.logs.filter((l) => l.logSetId === id).map((l) => l.id));
-      const hashIndex = { ...p.hashIndex };
-      for (const log of p.logs) {
-        if (log.logSetId === id) delete hashIndex[log.hash];
-      }
       const views = p.views.filter((v) => v.logSetId !== id);
       const removedViewIds = new Set(p.views.filter((v) => v.logSetId === id).map((v) => v.id));
       return {
         ...p,
         logSets: p.logSets.filter((s) => s.id !== id),
         logs,
-        hashIndex,
+        hashIndex: hashIndexFromLogs(logs),
         views,
         canvases: p.canvases.map((c) => ({
           ...c,
@@ -612,6 +626,7 @@ export const useProjectStore = create<Store>((set, get) => ({
       existingHashes: project.hashIndex,
     });
     const withIds = records.map((r) => ({ ...r, id: nanoid() }));
+    await appendLogs(project.id, withIds);
     patchProject(set, get, (p) => {
       const logSets =
         logSetId === "new"
@@ -621,10 +636,17 @@ export const useProjectStore = create<Store>((set, get) => ({
       for (const rec of withIds) hashIndex[rec.hash] = rec.id;
       const logs = [...p.logs, ...withIds];
       const setLogs = logs.filter((l) => l.logSetId === setId);
-      const fields = inferSchema(setLogs);
-      const suggested = suggestColumns(fields, setLogs.length);
+      const existing = logSets.find((s) => s.id === setId);
+      const schemaFields = mergeSchemaFromLogs(existing?.schemaFields ?? [], withIds);
+      const suggested = suggestColumns(schemaFields, setLogs.length);
       const nextSets = logSets.map((s) =>
-        s.id === setId && s.columns.length === 0 ? { ...s, columns: suggested } : s,
+        s.id !== setId
+          ? s
+          : {
+              ...s,
+              schemaFields,
+              columns: s.columns.length === 0 ? suggested : s.columns,
+            },
       );
       return upsertTab(
         { ...p, logSets: nextSets, logs, hashIndex },
@@ -635,16 +657,21 @@ export const useProjectStore = create<Store>((set, get) => ({
   },
 
   removeLogs: (ids) => {
+    const project = get().project;
+    if (project) void deleteLogs(project.id, ids);
     const drop = new Set(ids);
     patchProject(set, get, (p) => {
-      const hashIndex = { ...p.hashIndex };
-      for (const log of p.logs) {
-        if (drop.has(log.id)) delete hashIndex[log.hash];
-      }
+      const affected = new Set(p.logs.filter((l) => drop.has(l.id)).map((l) => l.logSetId));
+      const logs = p.logs.filter((l) => !drop.has(l.id));
       return {
         ...p,
-        logs: p.logs.filter((l) => !drop.has(l.id)),
-        hashIndex,
+        logs,
+        hashIndex: hashIndexFromLogs(logs),
+        logSets: p.logSets.map((s) =>
+          affected.has(s.id)
+            ? { ...s, schemaFields: inferSchema(logs.filter((l) => l.logSetId === s.id)) }
+            : s,
+        ),
         canvases: p.canvases.map((c) => ({
           ...c,
           nodes: c.nodes.filter((n) => n.type !== "log" || !drop.has((n.data as { logId: string }).logId)),
@@ -654,6 +681,9 @@ export const useProjectStore = create<Store>((set, get) => ({
   },
 
   setLogNote: (id, note) => {
+    const project = get().project;
+    const log = project?.logs.find((l) => l.id === id);
+    if (project && log) void putLogNote(project.id, { ...log, note });
     patchProject(set, get, (p) => ({
       ...p,
       logs: p.logs.map((l) => (l.id === id ? { ...l, note } : l)),
@@ -664,12 +694,12 @@ export const useProjectStore = create<Store>((set, get) => ({
     const id = nanoid();
     patchProject(set, get, (p) => {
       const logs = p.logs.filter((l) => l.logSetId === logSetId);
-      const setName = p.logSets.find((s) => s.id === logSetId)?.name;
+      const set = p.logSets.find((s) => s.id === logSetId);
       const view: BrowserView = {
         id,
-        name: name?.trim() || (setName ? `${setName} view` : "New view"),
+        name: name?.trim() || (set?.name ? `${set.name} view` : "New view"),
         logSetId,
-        columns: suggestColumns(inferSchema(logs), logs.length),
+        columns: suggestColumns(schemaForSource(set, logs), logs.length),
         filter: emptyFilter(),
       };
       return upsertTab({ ...p, views: [...p.views, view] }, { id: nanoid(), kind: "browser", viewId: id });

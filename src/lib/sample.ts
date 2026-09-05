@@ -131,6 +131,7 @@ export async function buildSampleProject(): Promise<Project> {
     columns: [],
     defaultPinnedPaths: ["ts", "level", "event"],
     hiddenPaths: [],
+    schemaFields: [],
   };
 
   const logs: LogRecord[] = [];
@@ -155,6 +156,7 @@ export async function buildSampleProject(): Promise<Project> {
   const fields = inferSchema(logs);
   const columns = suggestColumns(fields, logs.length);
   logSet.columns = columns;
+  logSet.schemaFields = fields;
   const errorView: BrowserView = {
     id: nanoid(),
     name: "Errors",
@@ -253,6 +255,7 @@ export async function buildSampleProject(): Promise<Project> {
     name: "Checkout timeout · Mar 12",
     createdAt: now,
     updatedAt: now,
+    schemaVersion: 2,
     logSets: [logSet],
     logs,
     hashIndex,

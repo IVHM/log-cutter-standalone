@@ -57,6 +57,8 @@ export type LogSet = {
   defaultPinnedPaths: string[];
   /** Hidden on canvas cards (collapsed + expanded body). */
   hiddenPaths: string[];
+  /** Incremental path catalog for this source. Do not re-walk all docs for schema UI. */
+  schemaFields: SchemaField[];
 };
 
 export type FilterOp =
@@ -150,21 +152,56 @@ export type ProjectSettings = {
   autoPinCommonFields: boolean;
 };
 
-export type Project = {
+/** IndexedDB document: Project minus working-set logs and hashIndex. */
+export type ProjectDoc = {
   id: string;
   name: string;
   createdAt: number;
   updatedAt: number;
   logSets: LogSet[];
-  logs: LogRecord[];
-  /** hash -> log id. Cheap O(1) duplicate detection; a few dozen bytes per log. */
-  hashIndex: Record<string, string>;
   views: BrowserView[];
   canvases: Canvas[];
   settings: ProjectSettings;
   openTabs: Tab[];
   activeTabId: string | null;
   lastCanvasId: string | null;
+  schemaVersion: number;
+};
+
+export type Project = ProjectDoc & {
+  /** Working set. Not stored on the projects row after schema v2. */
+  logs: LogRecord[];
+  /** Derived in memory from logs; dedup also queries [projectId+hash]. */
+  hashIndex: Record<string, string>;
+};
+
+export const SCHEMA_VERSION = 2;
+
+export type LogRow = {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  hash: string;
+  shapeId: string;
+  importedAt: number;
+  sourceFile?: string;
+  note: string;
+  meta: Record<string, string>;
+  data: unknown;
+};
+
+export type LogFieldKind = "data" | "meta" | "note";
+
+export type LogFieldRow = {
+  id: string;
+  projectId: string;
+  sourceId: string;
+  logId: string;
+  path: string;
+  kind: LogFieldKind;
+  jsonType: "null" | "boolean" | "number" | "string";
+  value: string | number | boolean | null;
+  valueKey: string;
 };
 
 export const DEFAULT_SETTINGS: ProjectSettings = {

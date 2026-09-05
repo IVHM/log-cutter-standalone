@@ -1,6 +1,9 @@
 import { jsonType } from "./hash";
 import { joinPath, toSchemaPath } from "./json-path";
-import type { JsonTypeName, LogRecord, SchemaField } from "./types";
+import type { JsonTypeName, LogRecord, LogSet, SchemaField } from "./types";
+
+export const SCHEMA_MAX_DEPTH = 8;
+export const SCHEMA_MAX_ARRAY = 12;
 
 const EMPTY_TYPES = (): Record<JsonTypeName, number> => ({
   null: 0,
@@ -12,7 +15,19 @@ const EMPTY_TYPES = (): Record<JsonTypeName, number> => ({
 });
 
 export function inferSchema(logs: LogRecord[]): SchemaField[] {
+  return mergeSchemaFromLogs([], logs);
+}
+
+export function mergeSchemaFromLogs(existing: SchemaField[], logs: LogRecord[]): SchemaField[] {
   const map = new Map<string, SchemaField>();
+  for (const field of existing) {
+    map.set(field.path, {
+      path: field.path,
+      types: { ...field.types },
+      occurrences: field.occurrences,
+      isArrayItem: field.isArrayItem,
+    });
+  }
 
   for (const log of logs) {
     const seen = new Set<string>();
@@ -31,6 +46,11 @@ export function inferSchema(logs: LogRecord[]): SchemaField[] {
   });
 }
 
+export function schemaForSource(set: LogSet | undefined, logs: LogRecord[]): SchemaField[] {
+  if (set?.schemaFields && set.schemaFields.length > 0) return set.schemaFields;
+  return inferSchema(logs);
+}
+
 function walk(
   value: unknown,
   path: string,
@@ -38,7 +58,7 @@ function walk(
   seen: Set<string>,
   depth: number,
 ): void {
-  if (depth > 8) return;
+  if (depth > SCHEMA_MAX_DEPTH) return;
   const type = jsonType(value);
   if (path) bump(map, seen, toSchemaPath(path), type, path.includes("[]") || /\[\d+\]/.test(path));
 
@@ -47,7 +67,7 @@ function walk(
       walk(child, joinPath(path, key), map, seen, depth + 1);
     }
   } else if (type === "array" && Array.isArray(value)) {
-    const limit = Math.min(value.length, 12);
+    const limit = Math.min(value.length, SCHEMA_MAX_ARRAY);
     for (let i = 0; i < limit; i += 1) {
       walk(value[i], joinPath(path, i), map, seen, depth + 1);
     }

@@ -20,7 +20,9 @@
     "appId": "dev.logcutter.app",
     "productName": "LogCutter",
     "npmRebuild": false,
-    "electronLanguages": ["en-US"],
+    "electronLanguages": [
+      "en-US"
+    ],
     "directories": {
       "output": "dist"
     },
@@ -50,6 +52,7 @@
     }
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.10",
     "@xyflow/react": "^12.11.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

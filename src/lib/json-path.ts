@@ -15,8 +15,13 @@ function escapeKey(key: string): string {
   return isSafeKey(key) ? key : `[${JSON.stringify(key)}]`;
 }
 
-export function tokenizePath(path: string): Array<string | number> {
-  const out: Array<string | number> = [];
+/** Rollup token for schema paths like items[].id */
+export const PATH_ROLLUP: unique symbol = Symbol("[]");
+
+export type PathToken = string | number | typeof PATH_ROLLUP;
+
+export function tokenizePath(path: string): PathToken[] {
+  const out: PathToken[] = [];
   let i = 0;
   while (i < path.length) {
     if (path[i] === ".") {
@@ -27,7 +32,8 @@ export function tokenizePath(path: string): Array<string | number> {
       const close = path.indexOf("]", i);
       if (close === -1) break;
       const inner = path.slice(i + 1, close);
-      if (/^\d+$/.test(inner)) out.push(Number(inner));
+      if (inner === "") out.push(PATH_ROLLUP);
+      else if (/^\d+$/.test(inner)) out.push(Number(inner));
       else {
         try {
           out.push(String(JSON.parse(inner)));
@@ -46,11 +52,42 @@ export function tokenizePath(path: string): Array<string | number> {
   return out;
 }
 
+const DEFAULT_COLLECT_CAP = 12;
+
+/** Walk rollup `[]` tokens across array elements (capped). */
+export function collectAtPath(data: unknown, path: string, cap = DEFAULT_COLLECT_CAP): unknown[] {
+  if (!path) return [data];
+  let cursors: unknown[] = [data];
+  for (const token of tokenizePath(path)) {
+    const next: unknown[] = [];
+    for (const cur of cursors) {
+      if (cur == null) continue;
+      if (token === PATH_ROLLUP) {
+        if (!Array.isArray(cur)) continue;
+        const limit = Math.min(cur.length, cap);
+        for (let i = 0; i < limit; i += 1) next.push(cur[i]);
+      } else if (typeof token === "number") {
+        if (Array.isArray(cur)) next.push(cur[token]);
+      } else if (typeof cur === "object" && !Array.isArray(cur)) {
+        next.push((cur as Record<string, unknown>)[token]);
+      }
+    }
+    cursors = next;
+  }
+  return cursors;
+}
+
 export function getAtPath(data: unknown, path: string): unknown {
   if (!path) return data;
+  if (path.includes("[]")) {
+    const vals = collectAtPath(data, path);
+    if (vals.length === 0) return undefined;
+    if (vals.length === 1) return vals[0];
+    return vals;
+  }
   let cur: unknown = data;
   for (const token of tokenizePath(path)) {
-    if (cur == null) return undefined;
+    if (cur == null || token === PATH_ROLLUP) return undefined;
     if (typeof token === "number") {
       if (!Array.isArray(cur)) return undefined;
       cur = cur[token];
@@ -103,4 +140,13 @@ export function formatScalar(value: unknown, max = 80): string {
   } catch {
     return String(value);
   }
+}
+
+/** Table cells: join multiple rollup leaves instead of dumping a JSON array. */
+export function formatCellValue(value: unknown, max = 80): string {
+  if (Array.isArray(value)) {
+    const parts = value.map((item) => formatScalar(item, max));
+    return formatScalar(parts.join(", "), max);
+  }
+  return formatScalar(value, max);
 }

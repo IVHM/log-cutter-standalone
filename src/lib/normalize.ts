@@ -1,6 +1,6 @@
 import { emptyFilter, filterHasClauses } from "./filter";
 import type { BrowserView, LogSet, Project, Tab } from "./types";
-import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS } from "./types";
+import { DEFAULT_HEADER_COLOR, DEFAULT_HEADER_PATHS, SCHEMA_VERSION } from "./types";
 
 export function normalizeLogSet(set: LogSet): LogSet {
   return {
@@ -13,6 +13,7 @@ export function normalizeLogSet(set: LogSet): LogSet {
     sortBy: set.sortBy,
     defaultPinnedPaths: Array.isArray(set.defaultPinnedPaths) ? set.defaultPinnedPaths : [],
     hiddenPaths: Array.isArray(set.hiddenPaths) ? set.hiddenPaths : [],
+    schemaFields: Array.isArray(set.schemaFields) ? set.schemaFields : [],
   };
 }
 
@@ -103,6 +104,7 @@ export function normalizeProject(project: Project): Project {
 
   return {
     ...project,
+    schemaVersion: project.schemaVersion ?? SCHEMA_VERSION,
     logSets,
     views: keptViews,
     openTabs,

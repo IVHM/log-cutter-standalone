@@ -1,4 +1,4 @@
-import { getAtPath } from "./json-path";
+import { collectAtPath, getAtPath } from "./json-path";
 import type { FilterClause, FilterExpr, FilterGroup, FilterOp, LogRecord } from "./types";
 
 export const FILTER_OPS: { id: FilterOp; label: string; values: 0 | 1 | 2 }[] = [
@@ -32,10 +32,24 @@ export function filterHasClauses(expr: FilterExpr | undefined): boolean {
 
 export function logField(log: LogRecord, path: string): unknown {
   if (!path) return undefined;
+  if (path === "note") return log.note || undefined;
   if (path.startsWith("meta.")) return log.meta[path.slice(5)];
   const fromData = getAtPath(log.data, path);
   if (fromData !== undefined) return fromData;
   return log.meta[path];
+}
+
+function logFieldValues(log: LogRecord, path: string): unknown[] {
+  if (!path) return [];
+  if (path === "note") return log.note ? [log.note] : [];
+  if (path.startsWith("meta.")) {
+    const v = log.meta[path.slice(5)];
+    return v === undefined ? [] : [v];
+  }
+  const collected = collectAtPath(log.data, path);
+  if (collected.length > 0) return collected;
+  const meta = log.meta[path];
+  return meta === undefined ? [] : [meta];
 }
 
 export function matchFilter(log: LogRecord, expr: FilterExpr | undefined): boolean {
@@ -48,7 +62,16 @@ export function matchFilter(log: LogRecord, expr: FilterExpr | undefined): boole
 
 function matchClause(log: LogRecord, clause: FilterClause): boolean {
   if (!clause.path) return true;
-  const raw = logField(log, clause.path);
+  const values = logFieldValues(log, clause.path);
+  const effective = values.length === 0 ? [undefined] : values;
+  const all =
+    clause.op === "neq" || clause.op === "is_false" || clause.op === "is_empty"
+      ? effective.every((raw) => matchOne(raw, clause))
+      : effective.some((raw) => matchOne(raw, clause));
+  return all;
+}
+
+function matchOne(raw: unknown, clause: FilterClause): boolean {
   switch (clause.op) {
     case "eq":
       return compare(raw, clause.value) === 0;
