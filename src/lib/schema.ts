@@ -1,5 +1,5 @@
 import { jsonType } from "./hash";
-import { joinPath, toSchemaPath } from "./json-path";
+import { joinPath, PATH_ROLLUP, toSchemaPath, tokenizePath, type PathToken } from "./json-path";
 import type { JsonTypeName, LogRecord, LogSet, SchemaField } from "./types";
 
 export const SCHEMA_MAX_DEPTH = 8;
@@ -49,6 +49,68 @@ export function mergeSchemaFromLogs(existing: SchemaField[], logs: LogRecord[]):
 export function schemaForSource(set: LogSet | undefined, logs: LogRecord[]): SchemaField[] {
   if (set?.schemaFields && set.schemaFields.length > 0) return set.schemaFields;
   return inferSchema(logs);
+}
+
+export type SchemaTreeNode = {
+  label: string;
+  path: string;
+  field: SchemaField | undefined;
+  children: SchemaTreeNode[];
+};
+
+function appendSchemaSegment(parent: string, token: PathToken): string {
+  if (token === PATH_ROLLUP) return parent ? `${parent}[]` : "[]";
+  if (typeof token === "number") return toSchemaPath(joinPath(parent, token));
+  return joinPath(parent, token);
+}
+
+function subtreeOccurrences(node: SchemaTreeNode): number {
+  const self = node.field?.occurrences ?? 0;
+  if (node.children.length === 0) return self;
+  return Math.max(self, ...node.children.map(subtreeOccurrences));
+}
+
+/** Nest dotted schema paths so customer.name.first renders under customer → name → first. */
+export function schemaToTree(fields: SchemaField[]): SchemaTreeNode[] {
+  const fieldByPath = new Map(fields.map((field) => [field.path, field]));
+  type Mutable = { label: string; path: string; children: Map<string, Mutable> };
+  const root: Mutable = { label: "", path: "", children: new Map() };
+
+  for (const field of fields) {
+    const tokens = tokenizePath(field.path);
+    let node = root;
+    let acc = "";
+    for (const token of tokens) {
+      acc = appendSchemaSegment(acc, token);
+      let child = node.children.get(acc);
+      if (!child) {
+        child = {
+          label: token === PATH_ROLLUP ? "[]" : String(token),
+          path: acc,
+          children: new Map(),
+        };
+        node.children.set(acc, child);
+      }
+      node = child;
+    }
+  }
+
+  function toNodes(children: Map<string, Mutable>): SchemaTreeNode[] {
+    const nodes: SchemaTreeNode[] = [...children.values()].map((child) => ({
+      label: child.label,
+      path: child.path,
+      field: fieldByPath.get(child.path),
+      children: toNodes(child.children),
+    }));
+    nodes.sort((a, b) => {
+      const occ = subtreeOccurrences(b) - subtreeOccurrences(a);
+      if (occ !== 0) return occ;
+      return a.label.localeCompare(b.label);
+    });
+    return nodes;
+  }
+
+  return toNodes(root.children);
 }
 
 function walk(

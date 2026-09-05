@@ -1,12 +1,11 @@
 "use client";
 
-import { Columns3, Eye, EyeOff, Pin, Plus, Search, Trash2, LayoutDashboard } from "lucide-react";
+import { Columns3, Plus, Search, Trash2, LayoutDashboard } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FilterBuilder } from "@/components/browser/FilterBuilder";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -20,7 +19,8 @@ import { PlaceOnCanvasDialog } from "@/components/canvas/PlaceOnCanvasDialog";
 import { emptyFilter } from "@/lib/filter";
 import { formatCellValue } from "@/lib/json-path";
 import { logCellValue } from "@/lib/fields";
-import { coveragePercent, schemaForSource, suggestColumns, typeLabel } from "@/lib/schema";
+import { schemaForSource, schemaToTree, suggestColumns } from "@/lib/schema";
+import { SchemaTree } from "@/components/browser/SchemaTree";
 import { VirtualLogTable } from "@/components/browser/VirtualLogTable";
 import { useProjectStore } from "@/lib/store";
 import { HEADER_COLORS } from "@/lib/types";
@@ -64,6 +64,7 @@ export function LogBrowser({ viewId, logSetId }: Props) {
   }, [project, resolvedSetId, view, search, scopedLogs]);
 
   const schema = useMemo(() => schemaForSource(logSet, scopedLogs), [logSet, scopedLogs]);
+  const schemaTree = useMemo(() => schemaToTree(schema), [schema]);
   const fieldPaths = useMemo(() => schema.map((f) => f.path), [schema]);
 
   useEffect(() => {
@@ -168,61 +169,16 @@ export function LogBrowser({ viewId, logSetId }: Props) {
               No fields yet. Import a CSV or JSONL to populate this source.
             </p>
           ) : (
-            schema.map((field) => {
-              const pinned = defaultPins.includes(field.path);
-              const hidden = hiddenPaths.includes(field.path);
-              return (
-                <div
-                  key={field.path}
-                  className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-zinc-900"
-                >
-                  <Checkbox
-                    checked={columns.includes(field.path)}
-                    onCheckedChange={() => toggleColumn(field.path)}
-                    className="shrink-0"
-                    aria-label={`Column ${field.path}`}
-                  />
-                  <span
-                    className="min-w-0 flex-1 truncate font-mono text-[11px] text-zinc-200"
-                    title={field.path}
-                  >
-                    {field.path}
-                  </span>
-                  <span
-                    className="shrink-0 pl-2 text-right font-mono text-[10px] tabular-nums text-[color-mix(in_oklab,var(--color-zinc-500),black_10%)]"
-                    title={`${field.occurrences}/${scopedLogs.length}`}
-                  >
-                    {typeLabel(field)} · {coveragePercent(field.occurrences, scopedLogs.length)}%
-                  </span>
-                  <span className="flex shrink-0 items-center">
-                    <button
-                      type="button"
-                      title="Default pin for new canvas cards"
-                      aria-label={pinned ? "Remove default pin" : "Default pin for new canvas cards"}
-                      onClick={() => toggleDefaultPin(field.path)}
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded",
-                        pinned ? "text-amber-300" : "text-zinc-400 hover:text-zinc-200",
-                      )}
-                    >
-                      <Pin className={cn("size-3", pinned && "fill-current")} />
-                    </button>
-                    <button
-                      type="button"
-                      title={hidden ? "Show field on canvas cards" : "Hide field on canvas cards"}
-                      aria-label={hidden ? "Show field" : "Hide field"}
-                      onClick={() => toggleHidden(field.path)}
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded",
-                        hidden ? "text-zinc-200" : "text-zinc-400 hover:text-zinc-200",
-                      )}
-                    >
-                      {hidden ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                    </button>
-                  </span>
-                </div>
-              );
-            })
+            <SchemaTree
+              nodes={schemaTree}
+              columns={columns}
+              defaultPins={defaultPins}
+              hiddenPaths={hiddenPaths}
+              logCount={scopedLogs.length}
+              onToggleColumn={toggleColumn}
+              onTogglePin={toggleDefaultPin}
+              onToggleHidden={toggleHidden}
+            />
           )}
         </div>
       </aside>
